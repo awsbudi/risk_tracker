@@ -1,0 +1,137 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Gantt Chart Timeline</h2>
+    
+    <!-- CONTROLS: Tombol Scroll Manual -->
+    <div class="btn-group">
+        <button class="btn btn-outline-secondary" onclick="scrollChart(-200)" title="Geser Kiri">⬅️ Geser Kiri</button>
+        <button class="btn btn-outline-secondary" onclick="scrollChart(200)" title="Geser Kanan">Geser Kanan ➡️</button>
+    </div>
+</div>
+
+<div class="alert alert-info">
+    <small>💡 <strong>Tip:</strong> 
+    1. Gunakan tombol panah di atas untuk menggeser tampilan (tidak perlu scrollbar bawah).<br>
+    2. <strong>Drag & Drop</strong> bar tugas untuk mengubah jadwal. Tugas lain yang tergantung padanya akan otomatis bergeser.</small>
+</div>
+
+<!-- CONTAINER SCROLLABLE -->
+<div class="card p-3 shadow-sm">
+    <!-- Container ini yang akan di-scroll oleh tombol -->
+    <div class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative;">
+        <div id="gantt"></div>
+    </div>
+</div>
+
+<style>
+    /* Warna Custom untuk Proyek */
+    .bar-project .bar { fill: #6f42c1 !important; }
+    .bar-project .bar-progress { fill: #563d7c !important; }
+    
+    /* Agar cursor terlihat bisa digeser */
+    .bar-wrapper { cursor: move; }
+    
+    /* Styling Container Scroll */
+    .gantt-scroll-container {
+        scroll-behavior: smooth; /* Efek geser halus */
+        border: 1px solid #eee;
+        border-radius: 4px;
+        min-height: 400px;
+        background-color: #fff;
+    }
+</style>
+
+<script>
+    // --- 1. FUNGSI NAVIGASI TOMBOL ---
+    function scrollChart(amount) {
+        const container = document.querySelector('.gantt-scroll-container');
+        if (container) {
+            container.scrollLeft += amount;
+        }
+    }
+
+    // --- 2. LOAD GANTT CHART ---
+    fetch("/gantt/data/")
+        .then(response => {
+            if (!response.ok) throw new Error("Gagal mengambil data dari server");
+            return response.json();
+        })
+        .then(data => {
+            if(data.length > 0) {
+                var gantt = new Gantt("#gantt", data, {
+                    header_height: 50,
+                    column_width: 30,
+                    step: 24,
+                    view_modes: ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'],
+                    bar_height: 25,
+                    bar_corner_radius: 3,
+                    arrow_curve: 5,
+                    padding: 18,
+                    view_mode: 'Week', // Default View
+                    date_format: 'YYYY-MM-DD',
+                    popup_trigger: 'click mouseover',
+                    
+                    // --- FITUR INTERAKTIF (DRAG & DROP) ---
+                    on_date_change: function(task, start, end) {
+                        // Jangan update jika itu adalah header Proyek (ID diawali PROJ)
+                        if (task.id.startsWith('PROJ')) {
+                            alert("Tanggal Proyek hanya bisa diubah lewat menu Edit Proyek.");
+                            window.location.reload(); // Reset posisi
+                            return; 
+                        }
+
+                        // Format tanggal object Date ke String YYYY-MM-DD
+                        const formatDate = (d) => {
+                            let month = '' + (d.getMonth() + 1),
+                                day = '' + d.getDate(),
+                                year = d.getFullYear();
+                            if (month.length < 2) month = '0' + month;
+                            if (day.length < 2) day = '0' + day;
+                            return [year, month, day].join('-');
+                        };
+
+                        const startStr = formatDate(start);
+                        const endStr = formatDate(end);
+
+                        // Kirim Data Baru ke Backend
+                        fetch(`/tugas/${task.id}/update-date/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                            body: JSON.stringify({ start: startStr, end: endStr })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                // Reload halaman agar User melihat efek "Domino"
+                                // (Tugas lain yang ikut bergeser karena dependency)
+                                window.location.reload(); 
+                            } else {
+                                alert("Gagal update tanggal: " + data.error);
+                            }
+                        });
+                    },
+                    
+                    custom_popup_html: function(task) {
+                        return `
+                        <div class="details-container" style="padding:10px; background:white; border:1px solid #ccc; width: 200px; z-index:1000;">
+                          <strong>${task.name}</strong><br/>
+                          <small>${task.start} - ${task.end}</small><br/>
+                          Progress: ${task.progress}%
+                        </div>
+                        `;
+                    }
+                });
+            } else {
+                document.getElementById('gantt').innerHTML = "<p class='text-muted p-3'>Belum ada data tugas/proyek untuk Gantt Chart.</p>";
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('gantt').innerHTML = "<p class='text-danger p-3'>Gagal memuat data Gantt Chart.</p>";
+        });
+</script>
+{% endblock %}

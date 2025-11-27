@@ -1,0 +1,1 @@
+web: gunicorn risk_tracker.wsgi

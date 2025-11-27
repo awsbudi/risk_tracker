@@ -1,0 +1,12 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<h2>{{ object.nama_proyek }}</h2>
+<p>{{ object.deskripsi }}</p>
+<hr>
+<h4>Daftar Tugas Proyek Ini</h4>
+<ul>
+{% for task in object.tasks.all %}
+    <li>{{ task.nama_tugas }} - {{ task.status }}</li>
+{% endfor %}
+</ul>
+{% endblock %}

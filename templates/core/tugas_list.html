@@ -1,0 +1,143 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+    <h2>Daftar Tugas Risk Management</h2>
+    <a href="{% url 'tugas-create' %}" class="btn btn-primary">+ Tambah Tugas Utama</a>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-hover bg-white shadow-sm rounded align-middle">
+        <thead class="table-light">
+            <tr>
+                <th style="width: 120px;">Kode</th>
+                <th>Nama Tugas</th>
+                <th>Tipe</th>
+                <th>PIC</th>
+                <th>Deadline</th>
+                <th style="width: 150px;">Progress</th> <!-- Kolom Progress Lebar -->
+                <th>Status</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tugas in tugas_list %}
+            <tr>
+                <td><small class="text-muted">{{ tugas.kode_tugas }}</small></td>
+                
+                <td style="padding-left: {% if tugas.induk %}40px{% else %}10px{% endif %}">
+                    {% if tugas.induk %}↳{% endif %} 
+                    <a href="{% url 'tugas-update' tugas.pk %}" class="text-decoration-none text-dark fw-bold">
+                        {{ tugas.nama_tugas }}
+                    </a>
+                </td>
+                
+                <td><span class="badge bg-info text-dark">{{ tugas.get_tipe_tugas_display }}</span></td>
+                <td><small>{{ tugas.ditugaskan_ke.username|default:"-" }}</small></td>
+                
+                <td>
+                    <small {% if tugas.status == 'OVERDUE' %}class="text-danger fw-bold"{% endif %}>
+                        {{ tugas.tenggat_waktu|date:"d M Y" }}
+                    </small>
+                </td>
+                
+                <!-- INLINE PROGRESS UPDATE -->
+                <td>
+                    {% if request.user == tugas.ditugaskan_ke or request.user.is_superuser or request.user.profile.role == 'ADMIN' or request.user.profile.role == 'LEADER' %}
+                        <input type="range" class="form-range progress-slider" 
+                               data-id="{{ tugas.id }}" 
+                               min="0" max="100" step="10" 
+                               value="{{ tugas.progress }}"
+                               title="Geser untuk update progress">
+                        <div class="d-flex justify-content-between">
+                            <small class="progress-val-{{ tugas.id }}">{{ tugas.progress }}%</small>
+                        </div>
+                    {% else %}
+                        <div class="progress" style="height: 15px;">
+                            <div class="progress-bar" style="width: {{ tugas.progress }}%">{{ tugas.progress }}%</div>
+                        </div>
+                    {% endif %}
+                </td>
+
+                <td id="status-text-{{ tugas.id }}">
+                    {% if tugas.status == 'DONE' %}<span class="badge bg-success">Selesai</span>
+                    {% elif tugas.status == 'OVERDUE' %}<span class="badge bg-danger">Telat</span>
+                    {% elif tugas.status == 'IN_PROGRESS' %}<span class="badge bg-warning text-dark">Proses</span>
+                    {% else %}<span class="badge bg-secondary">{{ tugas.get_status_display }}</span>{% endif %}
+                </td>
+                
+                <td>
+                    <div class="btn-group">
+                        <!-- TOMBOL INLINE SUBTASK (+) -->
+                        <!-- Tombol ini akan otomatis mengisi parent_id di form berikutnya -->
+                        <a href="{% url 'tugas-create' %}?parent_id={{ tugas.id }}" 
+                           class="btn btn-sm btn-outline-primary" 
+                           title="Tambah Subtask di bawah ini">
+                           +
+                        </a>
+
+                        {% if request.user.is_superuser or request.user.profile.role == 'ADMIN' or request.user.profile.role == 'LEADER' %}
+                             <a href="{% url 'tugas-update' tugas.pk %}" class="btn btn-sm btn-outline-warning">✎</a>
+                             {% if request.user.is_superuser or request.user.profile.role == 'ADMIN' %}
+                                <a href="{% url 'tugas-delete' tugas.pk %}" class="btn btn-sm btn-outline-danger">🗑</a>
+                             {% endif %}
+                        {% elif request.user.profile.role == 'MEMBER' and tugas.ditugaskan_ke == request.user %}
+                             <a href="{% url 'tugas-update' tugas.pk %}" class="btn btn-sm btn-outline-warning">✎</a>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- JAVASCRIPT UNTUK AJAX PROGRESS -->
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const sliders = document.querySelectorAll('.progress-slider');
+
+        sliders.forEach(slider => {
+            // Event saat slider dilepas (change) agar tidak spam request saat digeser (input)
+            slider.addEventListener('change', function() {
+                const taskId = this.getAttribute('data-id');
+                const newVal = this.value;
+                
+                // Update tampilan teks angka %
+                document.querySelector(`.progress-val-${taskId}`).textContent = newVal + "%";
+
+                // Kirim AJAX ke server
+                fetch(`/tugas/${taskId}/update-progress/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}' // Wajib untuk Django POST
+                    },
+                    body: JSON.stringify({ progress: newVal })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Update tampilan badge Status jika berubah (misal jadi DONE atau IN PROGRESS)
+                        const statusCell = document.getElementById(`status-text-${taskId}`);
+                        // Kita reload simple badge logic (bisa dipercantik, tp ini basic text update)
+                        let badgeClass = 'bg-secondary';
+                        if (data.new_status === 'Selesai') badgeClass = 'bg-success';
+                        else if (data.new_status === 'Sedang Dikerjakan') badgeClass = 'bg-warning text-dark';
+                        
+                        statusCell.innerHTML = `<span class="badge ${badgeClass}">${data.new_status}</span>`;
+                    } else {
+                        alert('Gagal update: ' + data.error);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+            });
+
+            // Event saat digeser real-time (hanya visual angka)
+            slider.addEventListener('input', function() {
+                const taskId = this.getAttribute('data-id');
+                document.querySelector(`.progress-val-${taskId}`).textContent = this.value + "%";
+            });
+        });
+    });
+</script>
+{% endblock %}

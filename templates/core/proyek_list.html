@@ -1,0 +1,35 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+    <h2>Daftar Proyek</h2>
+    {% if request.user.is_superuser or request.user.profile.role == 'ADMIN' or request.user.profile.role == 'LEADER' %}
+        <a href="{% url 'proyek-create' %}" class="btn btn-primary">+ Buat Proyek</a>
+    {% endif %}
+</div>
+<div class="row">
+    {% for p in proyek_list %}
+    <div class="col-md-4 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">{{ p.nama_proyek }} <small class="text-muted text-sm">({{ p.kode_proyek }})</small></h5>
+                <h6 class="card-subtitle mb-2 text-muted">Deadline: {{ p.tanggal_selesai }}</h6>
+                <p class="card-text">{{ p.deskripsi|truncatechars:100 }}</p>
+                
+                <div class="mt-3">
+                    <a href="{% url 'proyek-detail' p.pk %}" class="btn btn-sm btn-outline-primary">Detail</a>
+                    
+                    {% if request.user.is_superuser or request.user.profile.role == 'ADMIN' %}
+                        <a href="{% url 'proyek-update' p.pk %}" class="btn btn-sm btn-outline-warning">Edit</a>
+                        <a href="{% url 'proyek-delete' p.pk %}" class="btn btn-sm btn-outline-danger">Hapus</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12 text-center text-muted">
+        <p>Belum ada proyek untuk divisi Anda.</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

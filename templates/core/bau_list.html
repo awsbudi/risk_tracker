@@ -1,0 +1,50 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3 align-items-center">
+    <h2>Template Tugas Rutin (BAU)</h2>
+    <div>
+        <!-- Tombol Generate Baru -->
+        <a href="{% url 'bau-generate' %}" class="btn btn-success me-2" onclick="return confirm('Generate tugas rutin untuk periode ini?');">
+            ⚡ Generate Tugas Sekarang
+        </a>
+        <a href="{% url 'bau-create' %}" class="btn btn-primary">+ Template Baru</a>
+    </div>
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+{% endif %}
+
+<div class="alert alert-secondary">
+    <small>
+        <strong>Info:</strong> Template ini digunakan untuk membuat tugas secara otomatis (misal: Laporan Bulanan). 
+        Klik "Generate Tugas Sekarang" untuk memproses template secara manual saat ini juga.
+    </small>
+</div>
+
+<div class="row">
+    {% for bau in bau_list %}
+    <div class="col-md-4 mb-3">
+        <div class="card h-100 shadow-sm border-info">
+            <div class="card-body">
+                <h5 class="card-title">{{ bau.nama_tugas }}</h5>
+                <span class="badge bg-info mb-2">{{ bau.get_frekuensi_display }}</span>
+                <p class="card-text text-muted">{{ bau.deskripsi|default:"-" }}</p>
+                <small class="text-muted">
+                    PIC Default: <strong>{{ bau.default_pic.username|default:"Belum diset" }}</strong>
+                </small>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12 text-center text-muted">
+        <p>Belum ada template BAU. Silakan buat satu.</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
