@@ -10,3 +10,6 @@ python manage.py collectstatic --no-input
 
 # 3. Migrasi Database (Buat Tabel di Cloud)
 python manage.py migrate
+
+# 4. (BARU) Auto Create Admin
+python create_superuser.py
