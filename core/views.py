@@ -9,7 +9,10 @@ from django.contrib import messages
 from django.core.management import call_command
 from django.views.decorators.csrf import csrf_exempt
 import json
-from datetime import timedelta, datetime, date
+
+# --- BAGIAN IMPORT INI YANG PENTING ---
+# Pastikan 'datetime' ada di dalam import list
+from datetime import timedelta, datetime, date 
 import calendar
 
 # Import Models & Forms
@@ -168,7 +171,7 @@ def update_progress_api(request, pk):
             data = json.loads(request.body)
             new_progress = int(data.get('progress', 0))
             task = get_object_or_404(Tugas, pk=pk)
-            # Permission check (simplified)
+            # Permission check
             task.progress = new_progress
             if new_progress == 100: task.status = 'DONE'
             elif new_progress > 0 and task.status == 'TODO': task.status = 'IN_PROGRESS'
@@ -181,54 +184,36 @@ def update_progress_api(request, pk):
 # --- NEW: API UPDATE TANGGAL GANTT (INTERACTIVE) ---
 @login_required
 def update_task_date_api(request, pk):
-    """
-    API untuk mengupdate tanggal tugas saat digeser di Gantt Chart.
-    Juga melakukan 'Cascade Update' ke tugas yang tergantung padanya.
-    """
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
             start_str = data.get('start')
             end_str = data.get('end')
 
-            # Parsing tanggal (Format dari Frappe Gantt biasanya YYYY-MM-DD)
+            # INI BARIS YANG BUTUH 'datetime' DIIMPORT
             new_start = datetime.strptime(start_str, "%Y-%m-%d").date()
             new_end = datetime.strptime(end_str, "%Y-%m-%d").date()
 
-            # Validasi permission sederhana
             user = request.user
             if not (user.is_superuser or is_admin(user) or is_leader(user)):
-                # Member hanya boleh edit tugas sendiri
                 task_check = get_object_or_404(Tugas, pk=pk)
                 if task_check.ditugaskan_ke != user:
                      return JsonResponse({'error': 'Permission denied'}, status=403)
 
-            # Update Tugas Utama
             task = get_object_or_404(Tugas, pk=pk)
             task.tanggal_mulai = new_start
             task.tenggat_waktu = new_end
             task.save()
 
-            # --- LOGIC CASCADE (EFEK DOMINO) ---
-            # Cari semua tugas yang tergantung pada tugas ini
-            # Logic: Jika A bergeser, B (yang depend ke A) harus mulai SETELAH A selesai.
-            
+            # Cascade Logic
             def push_dependents(parent_task):
                 dependents = Tugas.objects.filter(tergantung_pada=parent_task)
                 for child in dependents:
-                    # Jika Tanggal Mulai Child < Tanggal Selesai Parent (Tumpang Tindih)
-                    # Maka geser Child ke depan
                     if child.tanggal_mulai <= parent_task.tenggat_waktu:
-                        # Hitung durasi asli child agar panjang bar tetap sama
                         duration = child.tenggat_waktu - child.tanggal_mulai
-                        
-                        # Set Mulai Child = Selesai Parent (atau +1 hari jika mau strict)
-                        # Di sini kita set sama persis (Finish-to-Start 0 lag)
                         child.tanggal_mulai = parent_task.tenggat_waktu
                         child.tenggat_waktu = child.tanggal_mulai + duration
                         child.save()
-                        
-                        # Rekursif: Cek lagi anak-anak dari child ini
                         push_dependents(child)
 
             push_dependents(task)
@@ -253,14 +238,12 @@ def gantt_data(request):
         else: return JsonResponse([], safe=False)
     
     data = []
-    # Proyek (Read only visuals)
     for p in projects:
         data.append({
             'id': f"PROJ-{p.id}", 'name': f"📁 {p.nama_proyek}",
             'start': p.tanggal_mulai.strftime('%Y-%m-%d'), 'end': p.tanggal_selesai.strftime('%Y-%m-%d'),
             'progress': 0, 'dependencies': "", 'custom_class': 'bar-project'
         })
-    # Tugas (Editable)
     for t in tasks:
         dep = str(t.tergantung_pada.id) if t.tergantung_pada else ""
         data.append({
