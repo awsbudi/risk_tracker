@@ -64,11 +64,23 @@ WSGI_APPLICATION = 'risk_tracker.wsgi.application'
 # Jika di Render/Railway (ada DATABASE_URL), pakai PostgreSQL.
 # Jika di Laptop, pakai SQLite.
 DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
-        conn_max_age=600
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
 }
+
+# 2. Konfigurasi Cloud: PostgreSQL (Render/Neon)
+# Logic: Jika server mendeteksi adanya 'DATABASE_URL', baru kita ganti ke Postgres.
+# Ini mencegah error 'Scheme unknown' saat dijalankan di laptop tanpa internet/env var.
+database_url = os.environ.get("DATABASE_URL")
+
+if database_url:
+    DATABASES['default'] = dj_database_url.parse(
+        database_url,
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -92,5 +104,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
+
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
