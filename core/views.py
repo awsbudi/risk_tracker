@@ -100,7 +100,6 @@ class ProyekUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     success_url = reverse_lazy('proyek-list')
 
     def test_func(self):
-        # Hanya Admin bisa edit proyek
         return is_admin(self.request.user)
 
 class ProyekDetailView(LoginRequiredMixin, GroupAccessMixin, DetailView):
@@ -184,7 +183,6 @@ class TugasDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
 
 @login_required
 def get_entity_dates_api(request):
-    """API untuk mengambil tanggal entitas (Proyek/Tugas) untuk auto-fill form"""
     entity_type = request.GET.get('type')
     entity_id = request.GET.get('id')
     
@@ -262,7 +260,7 @@ def update_task_date_api(request, pk):
     return JsonResponse({'error': 'Invalid method'}, status=405)
 
 
-# --- VISUALIZATION VIEWS (FIXED & FULL) ---
+# --- VISUALIZATION VIEWS (NO FILTER) ---
 
 @login_required
 def gantt_data(request):
@@ -277,19 +275,8 @@ def gantt_data(request):
             projects = projects.filter(pemilik_grup=group)
         else: return JsonResponse([], safe=False)
     
-    # FILTER LOGIC
-    start_filter = request.GET.get('start')
-    end_filter = request.GET.get('end')
+    # FILTER LOGIC DIHAPUS (DROP)
     
-    if start_filter and end_filter:
-        try:
-            filter_start = datetime.strptime(start_filter, "%Y-%m-%d").date()
-            filter_end = datetime.strptime(end_filter, "%Y-%m-%d").date()
-            # Overlap Logic
-            tasks = tasks.filter(tanggal_mulai__lte=filter_end, tenggat_waktu__gte=filter_start)
-            projects = projects.filter(tanggal_mulai__lte=filter_end, tanggal_selesai__gte=filter_start)
-        except ValueError: pass
-
     data = []
     for p in projects:
         data.append({
@@ -311,7 +298,7 @@ def gantt_view(request):
     return render(request, 'core/gantt.html')
 
 
-# --- EXPORT EXCEL VISUAL GANTT ---
+# --- EXPORT EXCEL VISUAL GANTT (NO FILTER) ---
 @login_required
 def export_gantt_excel(request):
     user = request.user
@@ -322,36 +309,22 @@ def export_gantt_excel(request):
         if group: tasks = tasks.filter(pemilik_grup=group)
         else: return HttpResponseForbidden("Anda tidak punya grup.")
     
-    # 1. Tentukan Range
-    start_filter = request.GET.get('start')
-    end_filter = request.GET.get('end')
-    filter_info = "Semua Periode"
-    
+    # Filter Dihapus, Otomatis deteksi range dari seluruh data
     global_start = None
     global_end = None
 
-    if start_filter and end_filter:
-        try:
-            filter_start = datetime.strptime(start_filter, "%Y-%m-%d").date()
-            filter_end = datetime.strptime(end_filter, "%Y-%m-%d").date()
-            tasks = tasks.filter(tanggal_mulai__lte=filter_end, tenggat_waktu__gte=filter_start)
-            filter_info = f"Periode: {start_filter} s/d {end_filter}"
-            
-            global_start = filter_start
-            global_end = filter_end
-        except ValueError: pass
-    
-    if not global_start and tasks.exists():
+    if tasks.exists():
         global_start = tasks.aggregate(Min('tanggal_mulai'))['tanggal_mulai__min']
         global_end = tasks.aggregate(Max('tenggat_waktu'))['tenggat_waktu__max']
 
     if not global_start: global_start = date.today()
     if not global_end: global_end = date.today() + timedelta(days=30)
     
+    # Safety Check: Jangan sampai kolomnya ribuan (max 1 tahun)
     if (global_end - global_start).days > 365:
         global_end = global_start + timedelta(days=365)
 
-    # 2. Setup Excel
+    # Setup Excel
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Gantt Visual"
@@ -368,7 +341,7 @@ def export_gantt_excel(request):
 
     ws['A1'] = "PROJECT GANTT CHART"
     ws['A1'].font = Font(bold=True, size=16)
-    ws['A2'] = filter_info
+    ws['A2'] = "Laporan Seluruh Tugas"
     
     # Header Kiri
     data_headers = ["KODE", "NAMA TUGAS", "PIC", "START", "END"]
@@ -438,7 +411,7 @@ def export_gantt_excel(request):
     ws.column_dimensions['E'].width = 12
 
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    filename = f"Gantt_Visual_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    filename = f"Gantt_Report_{datetime.now().strftime('%Y%m%d')}.xlsx"
     response['Content-Disposition'] = f'attachment; filename={filename}'
     wb.save(response)
     return response
