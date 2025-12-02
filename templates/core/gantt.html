@@ -5,25 +5,24 @@
 </div>
 
 <div class="alert alert-info py-2 mb-3">
-    <small>💡 <strong>Tip:</strong> Grafik otomatis fokus ke hari ini. Scroll ke kiri untuk melihat riwayat sebelumnya.</small>
+    <small>💡 <strong>Tip:</strong> Grafik otomatis fokus ke hari ini. Jika tombol tidak merespons, berarti seluruh grafik sudah tampil di layar.</small>
 </div>
 
 <!-- 1. CONTAINER CHART -->
 <div class="card p-3 shadow-sm mb-3">
-    <!-- Tambahkan ID pada container agar mudah di-select JS -->
+    <!-- PENTING: ID ini digunakan oleh script navigasi -->
     <div id="chart-scroll-container" class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative; min-height: 400px;">
         <svg id="gantt"></svg>
     </div>
 </div>
 
-<!-- 2. CONTROL PANEL (LAYOUT BARU: KIRI & BERTUMPUK) -->
+<!-- 2. CONTROL PANEL -->
 <div class="card bg-light border-0 shadow-sm">
     <div class="card-body">
         
-        <!-- Wrapper Kolom ke Bawah (Vertical Stack) -->
         <div class="d-flex flex-column gap-3 align-items-start">
             
-            <!-- Baris 1: View Mode -->
+            <!-- View Mode -->
             <div class="d-flex align-items-center gap-2">
                 <label for="viewModeSelect" class="fw-bold text-secondary mb-0" style="min-width: 90px;">👁️ View:</label>
                 <select class="form-select form-select-sm" style="width: 200px;" id="viewModeSelect" onchange="changeViewMode(this.value)">
@@ -35,26 +34,24 @@
                 </select>
             </div>
 
-            <!-- Baris 2: Actions (Download & Navigasi) -->
+            <!-- Actions -->
             <div class="d-flex align-items-center gap-2">
                 <label class="fw-bold text-secondary mb-0" style="min-width: 90px;">Actions:</label>
                 
-                <!-- Download -->
                 <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1" onclick="downloadExcel()">
                     <span>📥</span> Excel
                 </button>
                 
-                <div class="vr mx-2"></div> <!-- Pembatas Vertikal -->
+                <div class="vr mx-2"></div>
 
-                <!-- Navigasi Geser -->
                 <div class="btn-group">
-                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-300)" title="Geser Kiri (Mundur)">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-300)" title="Geser Kiri">
                         ⬅️ Back
                     </button>
                     <button class="btn btn-dark btn-sm" onclick="scrollToToday()" title="Ke Hari Ini">
                         📍 Today
                     </button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(300)" title="Geser Kanan (Maju)">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(300)" title="Geser Kanan">
                         Next ➡️
                     </button>
                 </div>
@@ -65,7 +62,6 @@
 </div>
 
 <style>
-    /* Styling Custom untuk Gantt */
     .bar-project .bar { fill: #6f42c1 !important; }
     .bar-project .bar-progress { fill: #563d7c !important; }
     .bar-wrapper { cursor: move; }
@@ -81,9 +77,9 @@
         font-weight: 500;
     }
     
-    /* Highlight kolom hari ini agar lebih jelas */
+    /* Highlight kolom hari ini */
     .today-highlight {
-        fill: #fff9c4 !important; /* Warna kuning muda */
+        fill: #fff9c4 !important; 
         opacity: 0.5;
     }
 </style>
@@ -92,77 +88,53 @@
     var ganttChart = null;
     var tasksData = [];
 
-    // --- 1. FUNGSI SCROLL MANUAL ---
+    // --- 1. FUNGSI SCROLL MANUAL (DENGAN FEEDBACK) ---
     function scrollChart(amount) {
         const container = document.getElementById('chart-scroll-container');
-        if (container) container.scrollLeft += amount;
+        if (!container) return;
+
+        // Cek apakah grafik cukup lebar untuk discroll
+        if (container.scrollWidth <= container.clientWidth) {
+            // Gunakan console.log atau toast ringan, jangan alert agar tidak mengganggu
+            console.warn("Grafik pas di layar, tidak perlu scroll.");
+            return;
+        }
+
+        container.scrollLeft += amount;
     }
 
-    // --- 2. FUNGSI SCROLL OTOMATIS KE HARI INI ---
+    // --- 2. FUNGSI SCROLL OTOMATIS KE HARI INI (LEBIH PINTAR) ---
     function scrollToToday() {
         const container = document.getElementById('chart-scroll-container');
         if (!container) return;
 
-        // Cari elemen 'today' highlight bawaan Frappe Gantt atau hitung manual
-        // Frappe Gantt menandai hari ini dengan elemen <rect> atau <path> class 'today-highlight'
-        // Namun, kita akan gunakan pendekatan kalkulasi posisi Header Text yang cocok dengan tanggal/bulan ini.
-        
-        // Kita delay sedikit karena SVG butuh waktu render
         setTimeout(() => {
-            const today = new Date();
-            const viewMode = document.getElementById('viewModeSelect').value;
+            // Coba cari elemen highlight hari ini yang dibuat Frappe Gantt
+            const todayHighlight = container.querySelector('.today-highlight');
             
-            // Nama Bulan dalam Bahasa Inggris (Default Frappe)
-            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-            const currentMonthName = monthNames[today.getMonth()];
-            const currentYear = today.getFullYear();
-            
-            // Cari text di header grid yang sesuai
-            const headerTexts = document.querySelectorAll('.grid-header text');
-            let targetX = 0;
-            let found = false;
-
-            if (viewMode === 'Month') {
-                // Cari teks seperti "January", "Feb", dll
-                // Frappe Gantt Month view biasanya menampilkan "YYYY" di atas dan "Jan", "Feb" di bawah atau sebaliknya.
-                // Kita cari teks yang mengandung nama bulan ini ATAU singkatan (Jan, Feb, Mar...)
-                const shortMonth = currentMonthName.substring(0, 3);
+            if (todayHighlight) {
+                // Jika ketemu, ambil posisinya
+                const x = parseFloat(todayHighlight.getAttribute('x')) || 0;
+                container.scrollLeft = x - 100; // Geser agar ada di agak tengah
+                console.log("Scrolled to .today-highlight at " + x);
+            } else {
+                // Jika tidak ketemu (misal karena view mode Month atau tanggal di luar range)
+                // Coba cari teks "Today" atau tanggal hari ini di header
+                console.warn("Marker 'Today' tidak ditemukan. Mungkin tanggal hari ini di luar range tugas?");
                 
-                headerTexts.forEach(text => {
-                    if (!found && (text.innerHTML.includes(currentMonthName) || text.innerHTML.includes(shortMonth))) {
-                        // Pastikan tahunnya juga relevan jika ada (opsional, simple check dulu)
-                        // Ambil koordinat X
-                        targetX = parseFloat(text.getAttribute('x'));
-                        found = true;
-                    }
-                });
-            } else {
-                // Untuk Day/Week, kita cari highlight 'Hari Ini'
-                // Frappe Gantt punya highlight Today
-                const todayHighlight = document.querySelector('.today-highlight');
-                if (todayHighlight) {
-                    targetX = parseFloat(todayHighlight.getAttribute('x'));
-                    found = true;
-                }
+                // Opsional: Beri tahu user jika hari ini di luar range tugas
+                const today = new Date();
+                const viewMode = document.getElementById('viewModeSelect').value;
+                // alert(`Posisi tanggal hari ini (${today.toDateString()}) tidak ditemukan di grafik saat ini.`);
             }
-
-            // Eksekusi Scroll
-            if (found) {
-                // Kurangi sedikit (misal 50px) agar tidak terlalu mepet kiri
-                container.scrollLeft = targetX - 50;
-            } else {
-                // Fallback: Jika tidak ketemu (misal data chart jauh di masa depan/lalu),
-                // scroll ke paling kanan atau biarkan 0.
-                console.log("Posisi hari ini tidak ditemukan di chart.");
-            }
-        }, 300); // Delay 300ms pasca render
+        }, 300);
     }
 
     // --- 3. FUNGSI GANTI VIEW ---
     function changeViewMode(mode) {
         if (ganttChart) {
             ganttChart.change_view_mode(mode);
-            scrollToToday(); // Auto scroll setiap ganti view
+            scrollToToday(); 
         }
     }
 
