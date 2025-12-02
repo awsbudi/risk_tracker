@@ -5,52 +5,62 @@
 </div>
 
 <div class="alert alert-info py-2 mb-3">
-    <small>💡 <strong>Tip:</strong> Drag bar tugas untuk ubah jadwal. Gunakan kontrol di bawah untuk mengubah tampilan.</small>
+    <small>💡 <strong>Tip:</strong> Grafik otomatis fokus ke hari ini. Scroll ke kiri untuk melihat riwayat sebelumnya.</small>
 </div>
 
-<!-- 1. CONTAINER CHART (Di Atas) -->
+<!-- 1. CONTAINER CHART -->
 <div class="card p-3 shadow-sm mb-3">
-    <div class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative; min-height: 400px;">
+    <!-- Tambahkan ID pada container agar mudah di-select JS -->
+    <div id="chart-scroll-container" class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative; min-height: 400px;">
         <svg id="gantt"></svg>
     </div>
 </div>
 
-<!-- 2. CONTROL PANEL (Di Bawah) -->
+<!-- 2. CONTROL PANEL (LAYOUT BARU: KIRI & BERTUMPUK) -->
 <div class="card bg-light border-0 shadow-sm">
-    <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div class="card-body">
         
-        <!-- Bagian Kiri: View Mode -->
-        <div class="d-flex align-items-center gap-2">
-            <label for="viewModeSelect" class="fw-bold text-secondary mb-0">👁️ View Mode:</label>
-            <select class="form-select form-select-sm" style="width: auto;" id="viewModeSelect" onchange="changeViewMode(this.value)">
-                <option value="Day">Harian (Day)</option>
-                <option value="Week" selected>Mingguan (Week)</option>
-                <option value="Month">Bulanan (Month)</option>
-                <option value="Half Day">Per 12 Jam</option>
-                <option value="Quarter Day">Per 6 Jam</option>
-            </select>
-        </div>
-
-        <!-- Bagian Kanan: Actions -->
-        <div class="d-flex align-items-center gap-2">
-            <!-- Download -->
-            <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1" onclick="downloadExcel()">
-                <span>📥</span> Download Excel
-            </button>
+        <!-- Wrapper Kolom ke Bawah (Vertical Stack) -->
+        <div class="d-flex flex-column gap-3 align-items-start">
             
-            <div class="vr mx-1"></div> <!-- Divider Vertikal -->
-
-            <!-- Navigasi Geser -->
-            <div class="btn-group">
-                <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-200)" title="Geser Kiri">
-                    ⬅️ Geser Kiri
-                </button>
-                <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(200)" title="Geser Kanan">
-                    Geser Kanan ➡️
-                </button>
+            <!-- Baris 1: View Mode -->
+            <div class="d-flex align-items-center gap-2">
+                <label for="viewModeSelect" class="fw-bold text-secondary mb-0" style="min-width: 90px;">👁️ View:</label>
+                <select class="form-select form-select-sm" style="width: 200px;" id="viewModeSelect" onchange="changeViewMode(this.value)">
+                    <option value="Day">Harian (Day)</option>
+                    <option value="Week" selected>Mingguan (Week)</option>
+                    <option value="Month">Bulanan (Month)</option>
+                    <option value="Half Day">Per 12 Jam</option>
+                    <option value="Quarter Day">Per 6 Jam</option>
+                </select>
             </div>
-        </div>
 
+            <!-- Baris 2: Actions (Download & Navigasi) -->
+            <div class="d-flex align-items-center gap-2">
+                <label class="fw-bold text-secondary mb-0" style="min-width: 90px;">Actions:</label>
+                
+                <!-- Download -->
+                <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1" onclick="downloadExcel()">
+                    <span>📥</span> Excel
+                </button>
+                
+                <div class="vr mx-2"></div> <!-- Pembatas Vertikal -->
+
+                <!-- Navigasi Geser -->
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-300)" title="Geser Kiri (Mundur)">
+                        ⬅️ Back
+                    </button>
+                    <button class="btn btn-dark btn-sm" onclick="scrollToToday()" title="Ke Hari Ini">
+                        📍 Today
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(300)" title="Geser Kanan (Maju)">
+                        Next ➡️
+                    </button>
+                </div>
+            </div>
+
+        </div>
     </div>
 </div>
 
@@ -65,32 +75,98 @@
         background-color: #fff;
     }
 
-    /* Memperbaiki tampilan teks di svg */
     .gantt .grid-header .tick text {
         font-size: 12px;
         fill: #555;
+        font-weight: 500;
+    }
+    
+    /* Highlight kolom hari ini agar lebih jelas */
+    .today-highlight {
+        fill: #fff9c4 !important; /* Warna kuning muda */
+        opacity: 0.5;
     }
 </style>
 
 <script>
-    // Variabel Global untuk Chart
     var ganttChart = null;
     var tasksData = [];
 
-    // --- 1. FUNGSI SCROLL ---
+    // --- 1. FUNGSI SCROLL MANUAL ---
     function scrollChart(amount) {
-        const container = document.querySelector('.gantt-scroll-container');
+        const container = document.getElementById('chart-scroll-container');
         if (container) container.scrollLeft += amount;
     }
 
-    // --- 2. FUNGSI GANTI VIEW MODE ---
+    // --- 2. FUNGSI SCROLL OTOMATIS KE HARI INI ---
+    function scrollToToday() {
+        const container = document.getElementById('chart-scroll-container');
+        if (!container) return;
+
+        // Cari elemen 'today' highlight bawaan Frappe Gantt atau hitung manual
+        // Frappe Gantt menandai hari ini dengan elemen <rect> atau <path> class 'today-highlight'
+        // Namun, kita akan gunakan pendekatan kalkulasi posisi Header Text yang cocok dengan tanggal/bulan ini.
+        
+        // Kita delay sedikit karena SVG butuh waktu render
+        setTimeout(() => {
+            const today = new Date();
+            const viewMode = document.getElementById('viewModeSelect').value;
+            
+            // Nama Bulan dalam Bahasa Inggris (Default Frappe)
+            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            const currentMonthName = monthNames[today.getMonth()];
+            const currentYear = today.getFullYear();
+            
+            // Cari text di header grid yang sesuai
+            const headerTexts = document.querySelectorAll('.grid-header text');
+            let targetX = 0;
+            let found = false;
+
+            if (viewMode === 'Month') {
+                // Cari teks seperti "January", "Feb", dll
+                // Frappe Gantt Month view biasanya menampilkan "YYYY" di atas dan "Jan", "Feb" di bawah atau sebaliknya.
+                // Kita cari teks yang mengandung nama bulan ini ATAU singkatan (Jan, Feb, Mar...)
+                const shortMonth = currentMonthName.substring(0, 3);
+                
+                headerTexts.forEach(text => {
+                    if (!found && (text.innerHTML.includes(currentMonthName) || text.innerHTML.includes(shortMonth))) {
+                        // Pastikan tahunnya juga relevan jika ada (opsional, simple check dulu)
+                        // Ambil koordinat X
+                        targetX = parseFloat(text.getAttribute('x'));
+                        found = true;
+                    }
+                });
+            } else {
+                // Untuk Day/Week, kita cari highlight 'Hari Ini'
+                // Frappe Gantt punya highlight Today
+                const todayHighlight = document.querySelector('.today-highlight');
+                if (todayHighlight) {
+                    targetX = parseFloat(todayHighlight.getAttribute('x'));
+                    found = true;
+                }
+            }
+
+            // Eksekusi Scroll
+            if (found) {
+                // Kurangi sedikit (misal 50px) agar tidak terlalu mepet kiri
+                container.scrollLeft = targetX - 50;
+            } else {
+                // Fallback: Jika tidak ketemu (misal data chart jauh di masa depan/lalu),
+                // scroll ke paling kanan atau biarkan 0.
+                console.log("Posisi hari ini tidak ditemukan di chart.");
+            }
+        }, 300); // Delay 300ms pasca render
+    }
+
+    // --- 3. FUNGSI GANTI VIEW ---
     function changeViewMode(mode) {
         if (ganttChart) {
             ganttChart.change_view_mode(mode);
+            scrollToToday(); // Auto scroll setiap ganti view
         }
     }
 
-    // --- 3. FUNGSI DOWNLOAD EXCEL (Aman) ---
+    // --- 4. DOWNLOAD EXCEL ---
     let isExporting = false;
     function downloadExcel() {
         if (isExporting) return;
@@ -100,7 +176,7 @@
         const originalText = btn.innerHTML;
         
         btn.disabled = true;
-        btn.innerHTML = "⏳ Processing...";
+        btn.innerHTML = "⏳ Generating...";
 
         window.location.href = "{% url 'gantt-export' %}";
 
@@ -111,7 +187,7 @@
         }, 5000);
     }
 
-    // --- 4. LOAD GANTT CHART ---
+    // --- 5. LOAD CHART ---
     function loadGantt() {
         const container = document.getElementById('gantt');
         container.innerHTML = "";
@@ -122,9 +198,8 @@
                 return response.json();
             })
             .then(data => {
-                tasksData = data; // Simpan data di variabel global
+                tasksData = data;
                 if(data.length > 0) {
-                    // Inisialisasi Gantt
                     ganttChart = new Gantt("#gantt", data, {
                         header_height: 50,
                         column_width: 30,
@@ -134,11 +209,10 @@
                         bar_corner_radius: 3,
                         arrow_curve: 5,
                         padding: 18,
-                        view_mode: 'Week', // Default View
+                        view_mode: 'Week', 
                         date_format: 'YYYY-MM-DD',
                         popup_trigger: 'click mouseover',
                         
-                        // Event saat bar digeser
                         on_date_change: function(task, start, end) {
                             if (task.id.startsWith('PROJ')) {
                                 alert("Tanggal Proyek hanya bisa diubah lewat menu Edit Proyek.");
@@ -165,7 +239,6 @@
                             .then(response => response.json())
                             .then(data => {
                                 if (data.status === 'success') {
-                                    // Refresh halaman untuk update dependency
                                     window.location.reload(); 
                                 } else {
                                     alert("Gagal update tanggal: " + data.error);
@@ -173,7 +246,6 @@
                             });
                         },
                         
-                        // Custom Tooltip
                         custom_popup_html: function(task) {
                             return `
                             <div class="details-container" style="padding:10px; background:white; border:1px solid #ccc; width: 200px; z-index:1000; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
@@ -186,6 +258,10 @@
                             `;
                         }
                     });
+
+                    // Trigger Auto Scroll setelah chart dimuat
+                    scrollToToday();
+
                 } else {
                     document.querySelector('.gantt-scroll-container').innerHTML = "<div class='text-center p-5 text-muted'>Belum ada data tugas.</div>";
                 }
@@ -196,7 +272,6 @@
             });
     }
 
-    // Jalankan saat load
     loadGantt();
 </script>
 {% endblock %}
