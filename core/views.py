@@ -3,17 +3,16 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic import ListView, CreateView, UpdateView, DetailView, DeleteView
 from django.urls import reverse_lazy
-from django.http import JsonResponse, HttpResponseForbidden
+from django.http import JsonResponse, HttpResponseForbidden, HttpResponse
 from django.db.models import Q
 from django.contrib import messages
 from django.core.management import call_command
 from django.views.decorators.csrf import csrf_exempt
 import json
-
-# --- BAGIAN IMPORT INI YANG PENTING ---
-# Pastikan 'datetime' ada di dalam import list
-from datetime import timedelta, datetime, date 
+from datetime import timedelta, datetime, date
 import calendar
+import openpyxl 
+from openpyxl.styles import Font, PatternFill, Alignment
 
 # Import Models & Forms
 from .models import Proyek, Tugas, TemplateBAU 
@@ -118,6 +117,8 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
     form_class = TugasForm
     template_name = 'core/tugas_form.html'
     success_url = reverse_lazy('tugas-list')
+    
+    # --- AUTO FILL SERVER SIDE (Untuk tombol +) ---
     def get_initial(self):
         initial = super().get_initial()
         parent_id = self.request.GET.get('parent_id')
@@ -126,8 +127,11 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
                 parent_task = Tugas.objects.get(pk=parent_id)
                 initial['induk'] = parent_task
                 initial['proyek'] = parent_task.proyek
+                # Set tanggal mulai sama dengan induknya
+                initial['tanggal_mulai'] = parent_task.tanggal_mulai
             except Tugas.DoesNotExist: pass
         return initial
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['user'] = self.request.user
@@ -162,7 +166,28 @@ class TugasDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     success_url = reverse_lazy('tugas-list')
     def test_func(self): return is_admin(self.request.user)
 
-# --- API HELPERS (Gantt & Progress) ---
+# --- API HELPERS (Dates, Gantt, Progress) ---
+
+@login_required
+def get_entity_dates_api(request):
+    """API untuk mengambil tanggal entitas (Proyek/Tugas) untuk auto-fill form"""
+    entity_type = request.GET.get('type')
+    entity_id = request.GET.get('id')
+    
+    data = {}
+    try:
+        if entity_type == 'project' and entity_id:
+            obj = Proyek.objects.get(pk=entity_id)
+            data['start_date'] = obj.tanggal_mulai
+            data['end_date'] = obj.tanggal_selesai
+        elif entity_type == 'task' and entity_id:
+            obj = Tugas.objects.get(pk=entity_id)
+            data['start_date'] = obj.tanggal_mulai
+            data['end_date'] = obj.tenggat_waktu
+            
+        return JsonResponse(data)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
 
 @login_required
 def update_progress_api(request, pk):
@@ -181,7 +206,6 @@ def update_progress_api(request, pk):
         except Exception as e: return JsonResponse({'error': str(e)}, status=400)
     return JsonResponse({'error': 'Invalid method'}, status=405)
 
-# --- NEW: API UPDATE TANGGAL GANTT (INTERACTIVE) ---
 @login_required
 def update_task_date_api(request, pk):
     if request.method == 'POST':
@@ -190,7 +214,6 @@ def update_task_date_api(request, pk):
             start_str = data.get('start')
             end_str = data.get('end')
 
-            # INI BARIS YANG BUTUH 'datetime' DIIMPORT
             new_start = datetime.strptime(start_str, "%Y-%m-%d").date()
             new_end = datetime.strptime(end_str, "%Y-%m-%d").date()
 
@@ -237,6 +260,17 @@ def gantt_data(request):
             projects = projects.filter(pemilik_grup=group)
         else: return JsonResponse([], safe=False)
     
+    start_filter = request.GET.get('start')
+    end_filter = request.GET.get('end')
+    
+    if start_filter and end_filter:
+        try:
+            filter_start = datetime.strptime(start_filter, "%Y-%m-%d").date()
+            filter_end = datetime.strptime(end_filter, "%Y-%m-%d").date()
+            tasks = tasks.filter(tanggal_mulai__lte=filter_end, tenggat_waktu__gte=filter_start)
+            projects = projects.filter(tanggal_mulai__lte=filter_end, tanggal_selesai__gte=filter_start)
+        except ValueError: pass
+
     data = []
     for p in projects:
         data.append({
@@ -252,6 +286,56 @@ def gantt_data(request):
             'progress': t.progress, 'dependencies': dep
         })
     return JsonResponse(data, safe=False)
+
+@login_required
+def export_gantt_excel(request):
+    user = request.user
+    group = user.groups.first()
+    tasks = Tugas.objects.all()
+    if not user.is_superuser:
+        if group: tasks = tasks.filter(pemilik_grup=group)
+        else: return HttpResponseForbidden("Anda tidak punya grup.")
+    
+    start_filter = request.GET.get('start')
+    end_filter = request.GET.get('end')
+    filter_info = "Semua Periode"
+    
+    if start_filter and end_filter:
+        try:
+            filter_start = datetime.strptime(start_filter, "%Y-%m-%d").date()
+            filter_end = datetime.strptime(end_filter, "%Y-%m-%d").date()
+            tasks = tasks.filter(tanggal_mulai__lte=filter_end, tenggat_waktu__gte=filter_start)
+            filter_info = f"Periode: {start_filter} s/d {end_filter}"
+        except ValueError: pass
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Laporan Gantt"
+    ws['A1'] = "LAPORAN STATUS PROYEK & TUGAS"
+    ws['A1'].font = Font(bold=True, size=14)
+    ws['A2'] = f"Divisi: {group.name if group else 'All'}"
+    ws['A3'] = filter_info
+    
+    headers = ["Kode", "Nama Tugas", "Tipe", "Start Date", "End Date", "PIC", "Status", "Progress", "Dependency"]
+    ws.append([])
+    ws.append(headers)
+    
+    header_row = ws[5]
+    for cell in header_row:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="2c3e50", end_color="2c3e50", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center")
+
+    for t in tasks:
+        pic = t.ditugaskan_ke.username if t.ditugaskan_ke else "-"
+        dep = t.tergantung_pada.kode_tugas if t.tergantung_pada else "-"
+        ws.append([t.kode_tugas, t.nama_tugas, t.tipe_tugas, t.tanggal_mulai, t.tenggat_waktu, pic, t.get_status_display(), f"{t.progress}%", dep])
+
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    filename = f"Laporan_Gantt_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    response['Content-Disposition'] = f'attachment; filename={filename}'
+    wb.save(response)
+    return response
 
 @login_required
 def gantt_view(request): return render(request, 'core/gantt.html')
