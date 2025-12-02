@@ -19,11 +19,15 @@ urlpatterns = [
     
     # API Updates (AJAX)
     path('tugas/<int:pk>/update-progress/', views.update_progress_api, name='tugas-update-progress'),
-    path('tugas/<int:pk>/update-date/', views.update_task_date_api, name='tugas-update-date'), # NEW: Update tanggal
+    path('tugas/<int:pk>/update-date/', views.update_task_date_api, name='tugas-update-date'),
+    
+    # NEW: API Helper untuk Form Auto-fill
+    path('api/get-entity-dates/', views.get_entity_dates_api, name='api-get-dates'),
 
-    # Gantt
+    # Gantt & Export
     path('gantt/', views.gantt_view, name='gantt-view'),
     path('gantt/data/', views.gantt_data, name='gantt-data'),
+    path('gantt/export/', views.export_gantt_excel, name='gantt-export'),
 
     # Kalender
     path('calendar/', views.calendar_view, name='calendar-view'),
