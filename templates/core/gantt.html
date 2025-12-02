@@ -2,14 +2,11 @@
 {% block content %}
 <!-- CSS PATCH KHUSUS HALAMAN INI -->
 <style>
-    /* CRITICAL FIX: Memaksa parent flex container (.content dari base.html) 
-       agar mau mengecil (shrink) dan tidak melebar mengikuti konten chart */
+    /* CRITICAL FIX: Memaksa parent flex container agar mau mengecil */
     .content {
         min-width: 0 !important;
-        overflow-x: hidden; /* Mencegah scrollbar ganda di body */
+        overflow-x: hidden; 
     }
-    
-    /* Memastikan row bootstrap tidak membuat horizontal scroll */
     .row {
         margin-right: 0;
         margin-left: 0;
@@ -17,7 +14,7 @@
 </style>
 
 <div class="row">
-    <div class="col-12 px-0"> <!-- px-0 agar pas di tepi -->
+    <div class="col-12 px-0"> 
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="mb-0">Gantt Chart</h2>
         </div>
@@ -25,21 +22,20 @@
         <div class="alert alert-info py-2 mb-3 shadow-sm mx-1">
             <div class="d-flex align-items-center">
                 <span class="me-2">💡</span>
-                <small><strong>Tip:</strong> Tampilan kini dikunci selebar layar. Gunakan scroll di dalam kotak grafik untuk melihat timeline.</small>
+                <small><strong>Tip:</strong> Gunakan scroll di dalam kotak grafik untuk melihat timeline.</small>
             </div>
         </div>
 
-        <!-- 1. CONTAINER CHART (FIXED WIDTH) -->
+        <!-- 1. CONTAINER CHART -->
         <div class="card shadow-sm mb-3 mx-1" style="overflow: hidden;"> 
             <div class="card-body p-2">
-                <!-- Wrapper dengan batas lebar layar -->
                 <div id="chart-scroll-container" class="gantt-scroll-container">
                     <svg id="gantt"></svg>
                 </div>
             </div>
         </div>
 
-        <!-- 2. CONTROL PANEL -->
+        <!-- 2. CONTROL PANEL (BERSIH) -->
         <div class="card bg-light border-0 shadow-sm mx-1">
             <div class="card-body py-3">
                 
@@ -57,27 +53,13 @@
                         </select>
                     </div>
 
-                    <!-- Actions -->
+                    <!-- Actions (Hanya Download) -->
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <label class="fw-bold text-secondary mb-0" style="min-width: 80px;">Actions:</label>
                         
                         <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1 shadow-sm" onclick="downloadExcel()">
                             <span>📥</span> Excel
                         </button>
-                        
-                        <div class="vr mx-2 d-none d-md-block"></div>
-
-                        <div class="btn-group shadow-sm">
-                            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-300)" title="Geser Kiri">
-                                ⬅️ Back
-                            </button>
-                            <button class="btn btn-dark btn-sm" onclick="scrollToToday()" title="Ke Hari Ini">
-                                📍 Today
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(300)" title="Geser Kanan">
-                                Next ➡️
-                            </button>
-                        </div>
                     </div>
 
                 </div>
@@ -90,10 +72,7 @@
     /* Styling Container agar pas di layar */
     .gantt-scroll-container {
         width: 100%;             
-        /* Kalkulasi lebar viewport dikurangi sidebar (estimasi 280px) & padding */
-        /* Ini adalah jaring pengaman kedua jika fix flexbox di atas gagal */
         max-width: calc(100vw - 40px); 
-        
         overflow-x: auto;        
         overflow-y: hidden;      
         white-space: nowrap;     
@@ -104,21 +83,17 @@
         min-height: 350px;
     }
     
-    /* Responsif untuk layar besar dengan Sidebar */
     @media (min-width: 768px) {
         .gantt-scroll-container {
-             /* 100% dari parent (.card-body) yang sekarang sudah patuh berkat min-width: 0 */
             max-width: 100%; 
         }
     }
 
-    /* Webkit Scrollbar */
     .gantt-scroll-container::-webkit-scrollbar { height: 8px; }
     .gantt-scroll-container::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
     .gantt-scroll-container::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
     .gantt-scroll-container::-webkit-scrollbar-thumb:hover { background: #555; }
 
-    /* Chart Elements */
     .bar-project .bar { fill: #6f42c1 !important; }
     .bar-project .bar-progress { fill: #563d7c !important; }
     .bar-wrapper { cursor: grab; }
@@ -140,11 +115,7 @@
     var ganttChart = null;
     var tasksData = [];
 
-    function scrollChart(amount) {
-        const container = document.getElementById('chart-scroll-container');
-        if (container) container.scrollLeft += amount;
-    }
-
+    // Fungsi Scroll Otomatis (Masih dipakai saat Load / Ganti View)
     function scrollToToday() {
         const container = document.getElementById('chart-scroll-container');
         if (!container) return;
@@ -152,11 +123,9 @@
             const todayHighlight = container.querySelector('.today-highlight');
             if (todayHighlight) {
                 const x = parseFloat(todayHighlight.getAttribute('x')) || 0;
-                // Geser agar posisi today ada di tengah layar (dikurangi setengah lebar container)
+                // Geser agar posisi today ada di tengah layar
                 const centerOffset = container.clientWidth / 2;
                 container.scrollLeft = x - centerOffset; 
-            } else {
-                console.log("Marker today tidak terlihat di view ini.");
             }
         }, 300);
     }
