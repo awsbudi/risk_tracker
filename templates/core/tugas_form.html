@@ -82,34 +82,63 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Ambil elemen form berdasarkan ID default Django
         const tipeSelect = document.getElementById('id_tipe_tugas');
         const proyekContainer = document.getElementById('proyek-container');
         const proyekSelect = document.getElementById('id_proyek');
+        const dependSelect = document.getElementById('id_tergantung_pada');
+        const startDateInput = document.getElementById('id_tanggal_mulai');
 
-        // PENCEGAHAN ERROR: Cek apakah elemen benar-benar ada sebelum diakses
-        if (!tipeSelect || !proyekContainer) {
-            console.warn("Element form untuk Tipe Tugas atau Container Proyek tidak ditemukan.");
-            return; // Hentikan script agar tidak crash
-        }
+        if (!tipeSelect || !proyekContainer) return;
 
+        // Toggle Proyek Field
         function toggleProyek() {
-            // Ambil value dengan aman
             if (tipeSelect.value === 'PROJECT') {
                 proyekContainer.style.display = 'block';
             } else {
                 proyekContainer.style.display = 'none';
-                // Pastikan select box proyek ada sebelum mereset nilainya
-                if (proyekSelect) {
-                    proyekSelect.value = ''; 
-                }
+                if (proyekSelect) proyekSelect.value = ''; 
             }
         }
 
-        // Jalankan saat load awal (untuk mode Edit)
-        toggleProyek();
+        // --- AUTO-FILL LOGIC VIA API ---
+        async function autoFillDate(type, id) {
+            if (!id) return;
+            try {
+                const response = await fetch(`/api/get-entity-dates/?type=${type}&id=${id}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error(data.error);
+                    return;
+                }
 
-        // Jalankan saat user mengganti pilihan
+                // Logika Pengisian
+                if (type === 'project') {
+                    // Jika pilih proyek -> Tgl Mulai = Tgl Mulai Proyek
+                    if (data.start_date) startDateInput.value = data.start_date;
+                } else if (type === 'task') {
+                    // Jika pilih dependency -> Tgl Mulai = Tgl Selesai Dependency
+                    if (data.end_date) startDateInput.value = data.end_date;
+                }
+            } catch (err) {
+                console.error("Gagal fetch data tanggal", err);
+            }
+        }
+
+        // Event Listeners
+        if (proyekSelect) {
+            proyekSelect.addEventListener('change', function() {
+                autoFillDate('project', this.value);
+            });
+        }
+
+        if (dependSelect) {
+            dependSelect.addEventListener('change', function() {
+                autoFillDate('task', this.value);
+            });
+        }
+
+        toggleProyek();
         tipeSelect.addEventListener('change', toggleProyek);
     });
 </script>

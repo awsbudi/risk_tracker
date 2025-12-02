@@ -14,7 +14,7 @@
                 <th>Tipe</th>
                 <th>PIC</th>
                 <th>Deadline</th>
-                <th style="width: 150px;">Progress</th> <!-- Kolom Progress Lebar -->
+                <th style="width: 150px;">Progress</th> 
                 <th>Status</th>
                 <th>Aksi</th>
             </tr>
@@ -40,7 +40,6 @@
                     </small>
                 </td>
                 
-                <!-- INLINE PROGRESS UPDATE -->
                 <td>
                     {% if request.user == tugas.ditugaskan_ke or request.user.is_superuser or request.user.profile.role == 'ADMIN' or request.user.profile.role == 'LEADER' %}
                         <input type="range" class="form-range progress-slider" 
@@ -67,8 +66,6 @@
                 
                 <td>
                     <div class="btn-group">
-                        <!-- TOMBOL INLINE SUBTASK (+) -->
-                        <!-- Tombol ini akan otomatis mengisi parent_id di form berikutnya -->
                         <a href="{% url 'tugas-create' %}?parent_id={{ tugas.id }}" 
                            class="btn btn-sm btn-outline-primary" 
                            title="Tambah Subtask di bawah ini">
@@ -91,39 +88,31 @@
     </table>
 </div>
 
-<!-- JAVASCRIPT UNTUK AJAX PROGRESS -->
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const sliders = document.querySelectorAll('.progress-slider');
 
         sliders.forEach(slider => {
-            // Event saat slider dilepas (change) agar tidak spam request saat digeser (input)
             slider.addEventListener('change', function() {
                 const taskId = this.getAttribute('data-id');
                 const newVal = this.value;
-                
-                // Update tampilan teks angka %
                 document.querySelector(`.progress-val-${taskId}`).textContent = newVal + "%";
 
-                // Kirim AJAX ke server
                 fetch(`/tugas/${taskId}/update-progress/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}' // Wajib untuk Django POST
+                        'X-CSRFToken': '{{ csrf_token }}'
                     },
                     body: JSON.stringify({ progress: newVal })
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        // Update tampilan badge Status jika berubah (misal jadi DONE atau IN PROGRESS)
                         const statusCell = document.getElementById(`status-text-${taskId}`);
-                        // Kita reload simple badge logic (bisa dipercantik, tp ini basic text update)
                         let badgeClass = 'bg-secondary';
                         if (data.new_status === 'Selesai') badgeClass = 'bg-success';
                         else if (data.new_status === 'Sedang Dikerjakan') badgeClass = 'bg-warning text-dark';
-                        
                         statusCell.innerHTML = `<span class="badge ${badgeClass}">${data.new_status}</span>`;
                     } else {
                         alert('Gagal update: ' + data.error);
@@ -132,7 +121,6 @@
                 .catch(error => console.error('Error:', error));
             });
 
-            // Event saat digeser real-time (hanya visual angka)
             slider.addEventListener('input', function() {
                 const taskId = this.getAttribute('data-id');
                 document.querySelector(`.progress-val-${taskId}`).textContent = this.value + "%";
