@@ -1,42 +1,56 @@
 {% extends 'core/base.html' %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+<div class="mb-3">
     <h2>Gantt Chart Timeline</h2>
-    
-    <div class="btn-group align-items-center">
-        <!-- PILIHAN VIEW MODE (Hari/Minggu/Bulan) -->
-        <div class="input-group input-group-sm me-2">
-            <label class="input-group-text bg-light fw-bold">👁️ View:</label>
-            <select class="form-select" id="viewModeSelect" onchange="changeViewMode(this.value)">
-                <option value="Day">Harian (Day)</option>
-                <option value="Week" selected>Mingguan (Week)</option>
-                <option value="Month">Bulanan (Month)</option>
-                <option value="Half Day">Setengah Hari (12 Jam)</option>
-                <option value="Quarter Day">Seperempat Hari (6 Jam)</option>
-            </select>
-        </div>
+</div>
 
-        <!-- TOMBOL DOWNLOAD -->
-        <button id="btnDownload" class="btn btn-success btn-sm" onclick="downloadExcel()">
-            📥 Excel
-        </button>
-        
-        <!-- NAVIGASI SCROLL -->
-        <div class="btn-group ms-2">
-            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-200)" title="Geser Kiri">⬅️</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(200)" title="Geser Kanan">➡️</button>
-        </div>
+<div class="alert alert-info py-2 mb-3">
+    <small>💡 <strong>Tip:</strong> Drag bar tugas untuk ubah jadwal. Gunakan kontrol di bawah untuk mengubah tampilan.</small>
+</div>
+
+<!-- 1. CONTAINER CHART (Di Atas) -->
+<div class="card p-3 shadow-sm mb-3">
+    <div class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative; min-height: 400px;">
+        <svg id="gantt"></svg>
     </div>
 </div>
 
-<div class="alert alert-info py-2">
-    <small>💡 <strong>Tip:</strong> Gunakan dropdown "View" untuk mengubah skala waktu (Harian/Mingguan/Bulanan).</small>
-</div>
+<!-- 2. CONTROL PANEL (Di Bawah) -->
+<div class="card bg-light border-0 shadow-sm">
+    <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
+        
+        <!-- Bagian Kiri: View Mode -->
+        <div class="d-flex align-items-center gap-2">
+            <label for="viewModeSelect" class="fw-bold text-secondary mb-0">👁️ View Mode:</label>
+            <select class="form-select form-select-sm" style="width: auto;" id="viewModeSelect" onchange="changeViewMode(this.value)">
+                <option value="Day">Harian (Day)</option>
+                <option value="Week" selected>Mingguan (Week)</option>
+                <option value="Month">Bulanan (Month)</option>
+                <option value="Half Day">Per 12 Jam</option>
+                <option value="Quarter Day">Per 6 Jam</option>
+            </select>
+        </div>
 
-<div class="card p-3 shadow-sm">
-    <div class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative;">
-        <!-- Element Gantt Chart -->
-        <svg id="gantt"></svg>
+        <!-- Bagian Kanan: Actions -->
+        <div class="d-flex align-items-center gap-2">
+            <!-- Download -->
+            <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1" onclick="downloadExcel()">
+                <span>📥</span> Download Excel
+            </button>
+            
+            <div class="vr mx-1"></div> <!-- Divider Vertikal -->
+
+            <!-- Navigasi Geser -->
+            <div class="btn-group">
+                <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-200)" title="Geser Kiri">
+                    ⬅️ Geser Kiri
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(200)" title="Geser Kanan">
+                    Geser Kanan ➡️
+                </button>
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -48,9 +62,6 @@
     
     .gantt-scroll-container {
         scroll-behavior: smooth;
-        border: 1px solid #eee;
-        border-radius: 4px;
-        min-height: 400px;
         background-color: #fff;
     }
 
@@ -89,7 +100,7 @@
         const originalText = btn.innerHTML;
         
         btn.disabled = true;
-        btn.innerHTML = "⏳ ...";
+        btn.innerHTML = "⏳ Processing...";
 
         window.location.href = "{% url 'gantt-export' %}";
 
