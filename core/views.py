@@ -127,7 +127,6 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
                 parent_task = Tugas.objects.get(pk=parent_id)
                 initial['induk'] = parent_task
                 initial['proyek'] = parent_task.proyek
-                # Set tanggal mulai sama dengan induknya
                 initial['tanggal_mulai'] = parent_task.tanggal_mulai
             except Tugas.DoesNotExist: pass
         return initial
@@ -246,7 +245,7 @@ def update_task_date_api(request, pk):
             return JsonResponse({'error': str(e)}, status=400)
     return JsonResponse({'error': 'Invalid method'}, status=405)
 
-# --- VISUALIZATION VIEWS ---
+# --- VISUALIZATION VIEWS (UPDATED FILTER) ---
 @login_required
 def gantt_data(request):
     user = request.user
@@ -260,6 +259,7 @@ def gantt_data(request):
             projects = projects.filter(pemilik_grup=group)
         else: return JsonResponse([], safe=False)
     
+    # --- FILTER TANGGAL ---
     start_filter = request.GET.get('start')
     end_filter = request.GET.get('end')
     
@@ -267,6 +267,8 @@ def gantt_data(request):
         try:
             filter_start = datetime.strptime(start_filter, "%Y-%m-%d").date()
             filter_end = datetime.strptime(end_filter, "%Y-%m-%d").date()
+            
+            # Logic: Tugas yang overlap dengan periode filter
             tasks = tasks.filter(tanggal_mulai__lte=filter_end, tenggat_waktu__gte=filter_start)
             projects = projects.filter(tanggal_mulai__lte=filter_end, tanggal_selesai__gte=filter_start)
         except ValueError: pass
@@ -287,11 +289,13 @@ def gantt_data(request):
         })
     return JsonResponse(data, safe=False)
 
+# --- NEW: EXPORT EXCEL ---
 @login_required
 def export_gantt_excel(request):
     user = request.user
     group = user.groups.first()
     tasks = Tugas.objects.all()
+    
     if not user.is_superuser:
         if group: tasks = tasks.filter(pemilik_grup=group)
         else: return HttpResponseForbidden("Anda tidak punya grup.")
@@ -311,17 +315,15 @@ def export_gantt_excel(request):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Laporan Gantt"
-    ws['A1'] = "LAPORAN STATUS PROYEK & TUGAS"
+    ws['A1'] = "LAPORAN STATUS TUGAS"
     ws['A1'].font = Font(bold=True, size=14)
-    ws['A2'] = f"Divisi: {group.name if group else 'All'}"
-    ws['A3'] = filter_info
+    ws['A2'] = filter_info
     
-    headers = ["Kode", "Nama Tugas", "Tipe", "Start Date", "End Date", "PIC", "Status", "Progress", "Dependency"]
+    headers = ["Kode", "Nama Tugas", "Tipe", "Start", "End", "PIC", "Status", "Progress", "Dependency"]
     ws.append([])
     ws.append(headers)
     
-    header_row = ws[5]
-    for cell in header_row:
+    for cell in ws[4]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill(start_color="2c3e50", end_color="2c3e50", fill_type="solid")
         cell.alignment = Alignment(horizontal="center")
@@ -329,7 +331,17 @@ def export_gantt_excel(request):
     for t in tasks:
         pic = t.ditugaskan_ke.username if t.ditugaskan_ke else "-"
         dep = t.tergantung_pada.kode_tugas if t.tergantung_pada else "-"
-        ws.append([t.kode_tugas, t.nama_tugas, t.tipe_tugas, t.tanggal_mulai, t.tenggat_waktu, pic, t.get_status_display(), f"{t.progress}%", dep])
+        ws.append([
+            t.kode_tugas, 
+            t.nama_tugas, 
+            t.tipe_tugas,
+            t.tanggal_mulai, 
+            t.tenggat_waktu, 
+            pic, 
+            t.get_status_display(), 
+            f"{t.progress}%", 
+            dep
+        ])
 
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     filename = f"Laporan_Gantt_{datetime.now().strftime('%Y%m%d')}.xlsx"
@@ -375,20 +387,16 @@ class TemplateBAUCreateView(LoginRequiredMixin, CreateView):
     template_name = 'core/bau_form.html'
     success_url = reverse_lazy('bau-list')
     def form_valid(self, form):
-        user_group = self.request.user.groups.first()
-        if not user_group:
-            form.add_error(None, "User tidak punya grup.")
-            return self.form_invalid(form)
-        form.instance.pemilik_grup = user_group
+        form.instance.pemilik_grup = self.request.user.groups.first()
         return super().form_valid(form)
 
 @login_required
 def trigger_bau_generation(request):
     if not (request.user.is_superuser or is_admin(request.user) or is_leader(request.user)):
-        messages.error(request, "Anda tidak memiliki izin menjalankan generator.")
+        messages.error(request, "Anda tidak memiliki izin.")
         return redirect('bau-list')
     try:
         call_command('generate_bau')
-        messages.success(request, "Tugas rutin berhasil digenerate! Cek Daftar Tugas.")
-    except Exception as e: messages.error(request, f"Gagal generate: {str(e)}")
+        messages.success(request, "Tugas rutin berhasil digenerate!")
+    except Exception as e: messages.error(request, f"Gagal: {str(e)}")
     return redirect('bau-list')

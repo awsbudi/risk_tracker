@@ -27,7 +27,7 @@ urlpatterns = [
     # Gantt & Export
     path('gantt/', views.gantt_view, name='gantt-view'),
     path('gantt/data/', views.gantt_data, name='gantt-data'),
-    path('gantt/export/', views.export_gantt_excel, name='gantt-export'),
+    path('gantt/export/', views.export_gantt_excel, name='gantt-export'), # NEW: Export
 
     # Kalender
     path('calendar/', views.calendar_view, name='calendar-view'),
