@@ -1,33 +1,24 @@
 {% extends 'core/base.html' %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+<div class="d-flex justify-content-between align-items-center mb-3">
     <h2>Gantt Chart Timeline</h2>
     
-    <!-- FILTER TOOLBAR -->
-    <div class="card p-2 bg-light d-flex flex-row align-items-center gap-2">
-        <label>Filter:</label>
-        <input type="date" id="filterStart" class="form-control form-control-sm" style="width: 140px;">
-        <span>s/d</span>
-        <input type="date" id="filterEnd" class="form-control form-control-sm" style="width: 140px;">
-        <button onclick="applyFilter()" class="btn btn-sm btn-primary">Tampilkan</button>
-        <button onclick="resetFilter()" class="btn btn-sm btn-outline-secondary">Reset</button>
-    </div>
-
-    <div class="btn-group ms-2">
-        <!-- TOMBOL DOWNLOAD DENGAN ID 'btnDownload' -->
-        <button id="btnDownload" class="btn btn-success btn-sm" onclick="downloadExcel()">
+    <div class="btn-group">
+        <!-- TOMBOL DOWNLOAD -->
+        <button id="btnDownload" class="btn btn-success" onclick="downloadExcel()">
             📥 Download Visual Excel
         </button>
         
+        <!-- NAVIGASI SCROLL -->
         <div class="btn-group ms-2">
-            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-200)" title="Geser Kiri">⬅️</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(200)" title="Geser Kanan">➡️</button>
+            <button class="btn btn-outline-secondary" onclick="scrollChart(-200)" title="Geser Kiri">⬅️</button>
+            <button class="btn btn-outline-secondary" onclick="scrollChart(200)" title="Geser Kanan">➡️</button>
         </div>
     </div>
 </div>
 
 <div class="alert alert-info py-2">
-    <small>💡 <strong>Tip:</strong> Drag bar tugas untuk ubah jadwal. Gunakan filter untuk periode spesifik.</small>
+    <small>💡 <strong>Tip:</strong> Drag & Drop bar tugas untuk mengubah jadwal secara langsung.</small>
 </div>
 
 <div class="card p-3 shadow-sm">
@@ -55,45 +46,22 @@
         if (container) container.scrollLeft += amount;
     }
 
-    function getFilterParams() {
-        const start = document.getElementById('filterStart').value;
-        const end = document.getElementById('filterEnd').value;
-        if (start && end) return `?start=${start}&end=${end}`;
-        return "";
-    }
-
-    function applyFilter() {
-        // Ambil parameter, lalu reload chart
-        const params = getFilterParams();
-        loadGantt(params);
-    }
-
-    function resetFilter() {
-        document.getElementById('filterStart').value = "";
-        document.getElementById('filterEnd').value = "";
-        loadGantt("");
-    }
-
-    // --- LOGIC DOWNLOAD AMAN (Anti Spam Klik) ---
+    // --- LOGIC DOWNLOAD AMAN ---
     let isExporting = false;
     
     function downloadExcel() {
-        if (isExporting) return; // Stop jika sedang proses
+        if (isExporting) return;
         isExporting = true;
         
         const btn = document.getElementById('btnDownload');
         const originalText = btn.innerHTML;
         
-        // 1. Matikan Tombol & Kasih Feedback
         btn.disabled = true;
         btn.innerHTML = "⏳ Generating...";
 
-        // 2. Redirect ke URL Download
-        const params = getFilterParams();
-        window.location.href = "{% url 'gantt-export' %}" + params;
+        // Langsung panggil URL export tanpa parameter filter
+        window.location.href = "{% url 'gantt-export' %}";
 
-        // 3. Hidupkan kembali setelah 5 detik (Estimasi waktu download)
-        // Kita pakai timer karena browser tidak memberi callback saat download selesai
         setTimeout(() => {
             isExporting = false;
             btn.disabled = false;
@@ -101,18 +69,18 @@
         }, 5000);
     }
 
-    function loadGantt(queryParams) {
+    function loadGantt() {
         const container = document.getElementById('gantt');
-        container.innerHTML = ""; // Bersihkan chart lama
+        container.innerHTML = "";
         
-        fetch("/gantt/data/" + queryParams)
+        // Panggil data tanpa parameter
+        fetch("/gantt/data/")
             .then(response => {
                 if (!response.ok) throw new Error("Gagal mengambil data dari server");
                 return response.json();
             })
             .then(data => {
                 if(data.length > 0) {
-                    // Re-instansiasi Frappe Gantt
                     var gantt = new Gantt("#gantt", data, {
                         header_height: 50,
                         column_width: 30,
@@ -141,7 +109,6 @@
                                 return [year, month, day].join('-');
                             };
 
-                            // Update Tanggal via API
                             fetch(`/tugas/${task.id}/update-date/`, {
                                 method: 'POST',
                                 headers: {
@@ -153,8 +120,6 @@
                             .then(response => response.json())
                             .then(data => {
                                 if (data.status === 'success') {
-                                    // PENTING: Reload halaman agar posisi bar kembali rapi
-                                    // dan efek 'domino' terlihat
                                     window.location.reload(); 
                                 } else {
                                     alert("Gagal update tanggal: " + data.error);
@@ -173,7 +138,7 @@
                         }
                     });
                 } else {
-                    container.innerHTML = "<div class='text-center p-5 text-muted'>Tidak ada data tugas untuk periode ini. <br>Coba ubah filter tanggal.</div>";
+                    container.innerHTML = "<div class='text-center p-5 text-muted'>Tidak ada data tugas.</div>";
                 }
             })
             .catch(error => {
@@ -182,7 +147,7 @@
             });
     }
 
-    // Load pertama kali
-    loadGantt("");
+    // Load
+    loadGantt();
 </script>
 {% endblock %}
