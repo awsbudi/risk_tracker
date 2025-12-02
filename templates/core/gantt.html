@@ -15,7 +15,7 @@
 
     <div class="btn-group ms-2">
         <!-- TOMBOL DOWNLOAD -->
-        <button class="btn btn-success btn-sm" onclick="downloadExcel()">📥 Download Excel</button>
+        <button class="btn btn-success btn-sm" onclick="downloadExcel()">📥 Download Visual Excel</button>
         
         <!-- NAVIGASI SCROLL -->
         <div class="btn-group ms-2">
@@ -26,7 +26,7 @@
 </div>
 
 <div class="alert alert-info py-2">
-    <small>💡 <strong>Tip:</strong> Gunakan filter tanggal untuk melihat periode spesifik. Klik 'Download Excel' untuk laporan.</small>
+    <small>💡 <strong>Tip:</strong> Drag bar tugas untuk ubah jadwal. Gunakan filter tanggal untuk melihat periode spesifik.</small>
 </div>
 
 <!-- CONTAINER SCROLLABLE -->
@@ -63,7 +63,8 @@
     }
 
     function applyFilter() {
-        loadGantt(getFilterParams());
+        const params = getFilterParams();
+        loadGantt(params);
     }
 
     function resetFilter() {
@@ -74,6 +75,7 @@
 
     function downloadExcel() {
         const params = getFilterParams();
+        // Redirect ke URL Export dengan parameter filter
         window.location.href = "{% url 'gantt-export' %}" + params;
     }
 
