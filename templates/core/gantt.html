@@ -1,83 +1,119 @@
 {% extends 'core/base.html' %}
 {% block content %}
-<div class="mb-3">
-    <h2>Gantt Chart Timeline</h2>
-</div>
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="mb-0">Gantt Chart</h2>
+        </div>
 
-<div class="alert alert-info py-2 mb-3">
-    <small>💡 <strong>Tip:</strong> Grafik otomatis fokus ke hari ini. Jika tombol tidak merespons, berarti seluruh grafik sudah tampil di layar.</small>
-</div>
-
-<!-- 1. CONTAINER CHART -->
-<div class="card p-3 shadow-sm mb-3">
-    <!-- PENTING: ID ini digunakan oleh script navigasi -->
-    <div id="chart-scroll-container" class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative; min-height: 400px;">
-        <svg id="gantt"></svg>
-    </div>
-</div>
-
-<!-- 2. CONTROL PANEL -->
-<div class="card bg-light border-0 shadow-sm">
-    <div class="card-body">
-        
-        <div class="d-flex flex-column gap-3 align-items-start">
-            
-            <!-- View Mode -->
-            <div class="d-flex align-items-center gap-2">
-                <label for="viewModeSelect" class="fw-bold text-secondary mb-0" style="min-width: 90px;">👁️ View:</label>
-                <select class="form-select form-select-sm" style="width: 200px;" id="viewModeSelect" onchange="changeViewMode(this.value)">
-                    <option value="Day">Harian (Day)</option>
-                    <option value="Week" selected>Mingguan (Week)</option>
-                    <option value="Month">Bulanan (Month)</option>
-                    <option value="Half Day">Per 12 Jam</option>
-                    <option value="Quarter Day">Per 6 Jam</option>
-                </select>
+        <div class="alert alert-info py-2 mb-3 shadow-sm">
+            <div class="d-flex align-items-center">
+                <span class="me-2">💡</span>
+                <small><strong>Tip:</strong> Grafik dibatasi selebar layar. Gunakan tombol navigasi atau scroll di dalam area grafik untuk melihat tanggal lain.</small>
             </div>
+        </div>
 
-            <!-- Actions -->
-            <div class="d-flex align-items-center gap-2">
-                <label class="fw-bold text-secondary mb-0" style="min-width: 90px;">Actions:</label>
-                
-                <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1" onclick="downloadExcel()">
-                    <span>📥</span> Excel
-                </button>
-                
-                <div class="vr mx-2"></div>
-
-                <div class="btn-group">
-                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-300)" title="Geser Kiri">
-                        ⬅️ Back
-                    </button>
-                    <button class="btn btn-dark btn-sm" onclick="scrollToToday()" title="Ke Hari Ini">
-                        📍 Today
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(300)" title="Geser Kanan">
-                        Next ➡️
-                    </button>
+        <!-- 1. CONTAINER CHART (FIXED WIDTH) -->
+        <div class="card shadow-sm mb-3" style="overflow: hidden;"> 
+            <div class="card-body p-2">
+                <!-- Wrapper dengan batas lebar layar -->
+                <div id="chart-scroll-container" class="gantt-scroll-container">
+                    <svg id="gantt"></svg>
                 </div>
             </div>
+        </div>
 
+        <!-- 2. CONTROL PANEL (LEFT ALIGNED) -->
+        <div class="card bg-light border-0 shadow-sm">
+            <div class="card-body py-3">
+                
+                <div class="d-flex flex-column gap-3 align-items-start">
+                    
+                    <!-- View Mode -->
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="fw-bold text-secondary mb-0" style="min-width: 80px;">👁️ View:</label>
+                        <select class="form-select form-select-sm shadow-sm" style="width: 180px;" id="viewModeSelect" onchange="changeViewMode(this.value)">
+                            <option value="Day">Harian (Day)</option>
+                            <option value="Week" selected>Mingguan (Week)</option>
+                            <option value="Month">Bulanan (Month)</option>
+                            <option value="Half Day">Per 12 Jam</option>
+                            <option value="Quarter Day">Per 6 Jam</option>
+                        </select>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <label class="fw-bold text-secondary mb-0" style="min-width: 80px;">Actions:</label>
+                        
+                        <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1 shadow-sm" onclick="downloadExcel()">
+                            <span>📥</span> Excel
+                        </button>
+                        
+                        <div class="vr mx-2 d-none d-md-block"></div>
+
+                        <div class="btn-group shadow-sm">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-300)" title="Geser Kiri">
+                                ⬅️ Back
+                            </button>
+                            <button class="btn btn-dark btn-sm" onclick="scrollToToday()" title="Ke Hari Ini">
+                                📍 Today
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(300)" title="Geser Kanan">
+                                Next ➡️
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 <style>
-    .bar-project .bar { fill: #6f42c1 !important; }
-    .bar-project .bar-progress { fill: #563d7c !important; }
-    .bar-wrapper { cursor: move; }
-    
+    /* Styling Container agar pas di layar */
     .gantt-scroll-container {
-        scroll-behavior: smooth;
+        width: 100%;             /* Paksa lebar 100% dari container induk */
+        max-width: 100%;         /* Jangan pernah melebihi lebar induk */
+        overflow-x: auto;        /* Scroll horizontal hanya muncul di sini */
+        overflow-y: hidden;      /* Sembunyikan scroll vertikal */
+        white-space: nowrap;     /* Baris tidak turun ke bawah */
         background-color: #fff;
+        border-radius: 4px;
+        /* Scrollbar styling tipis */
+        scrollbar-width: thin;
+        scrollbar-color: #888 #f1f1f1;
+        min-height: 350px;
     }
 
+    /* Webkit Scrollbar (Chrome/Safari) */
+    .gantt-scroll-container::-webkit-scrollbar {
+        height: 8px;
+    }
+    .gantt-scroll-container::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+    .gantt-scroll-container::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+    }
+    .gantt-scroll-container::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+
+    /* Chart Elements */
+    .bar-project .bar { fill: #6f42c1 !important; }
+    .bar-project .bar-progress { fill: #563d7c !important; }
+    .bar-wrapper { cursor: grab; }
+    .bar-wrapper:active { cursor: grabbing; }
+
     .gantt .grid-header .tick text {
-        font-size: 12px;
-        fill: #555;
-        font-weight: 500;
+        font-size: 11px; /* Font agak diperkecil biar muat banyak */
+        fill: #666;
+        font-weight: 600;
     }
     
-    /* Highlight kolom hari ini */
     .today-highlight {
         fill: #fff9c4 !important; 
         opacity: 0.5;
@@ -88,49 +124,27 @@
     var ganttChart = null;
     var tasksData = [];
 
-    // --- 1. FUNGSI SCROLL MANUAL (DENGAN FEEDBACK) ---
     function scrollChart(amount) {
         const container = document.getElementById('chart-scroll-container');
-        if (!container) return;
-
-        // Cek apakah grafik cukup lebar untuk discroll
-        if (container.scrollWidth <= container.clientWidth) {
-            // Gunakan console.log atau toast ringan, jangan alert agar tidak mengganggu
-            console.warn("Grafik pas di layar, tidak perlu scroll.");
-            return;
-        }
-
-        container.scrollLeft += amount;
+        if (container) container.scrollLeft += amount;
     }
 
-    // --- 2. FUNGSI SCROLL OTOMATIS KE HARI INI (LEBIH PINTAR) ---
     function scrollToToday() {
         const container = document.getElementById('chart-scroll-container');
         if (!container) return;
-
         setTimeout(() => {
-            // Coba cari elemen highlight hari ini yang dibuat Frappe Gantt
             const todayHighlight = container.querySelector('.today-highlight');
-            
             if (todayHighlight) {
-                // Jika ketemu, ambil posisinya
                 const x = parseFloat(todayHighlight.getAttribute('x')) || 0;
-                container.scrollLeft = x - 100; // Geser agar ada di agak tengah
-                console.log("Scrolled to .today-highlight at " + x);
+                container.scrollLeft = x - 100; 
             } else {
-                // Jika tidak ketemu (misal karena view mode Month atau tanggal di luar range)
-                // Coba cari teks "Today" atau tanggal hari ini di header
-                console.warn("Marker 'Today' tidak ditemukan. Mungkin tanggal hari ini di luar range tugas?");
-                
-                // Opsional: Beri tahu user jika hari ini di luar range tugas
-                const today = new Date();
-                const viewMode = document.getElementById('viewModeSelect').value;
-                // alert(`Posisi tanggal hari ini (${today.toDateString()}) tidak ditemukan di grafik saat ini.`);
+                // Fallback sederhana jika marker today tidak ada
+                // Coba scroll ke tengah atau biarkan
+                console.log("Marker today tidak terlihat di view ini.");
             }
         }, 300);
     }
 
-    // --- 3. FUNGSI GANTI VIEW ---
     function changeViewMode(mode) {
         if (ganttChart) {
             ganttChart.change_view_mode(mode);
@@ -138,20 +152,15 @@
         }
     }
 
-    // --- 4. DOWNLOAD EXCEL ---
     let isExporting = false;
     function downloadExcel() {
         if (isExporting) return;
         isExporting = true;
-        
         const btn = document.getElementById('btnDownload');
         const originalText = btn.innerHTML;
-        
         btn.disabled = true;
-        btn.innerHTML = "⏳ Generating...";
-
+        btn.innerHTML = "⏳ ...";
         window.location.href = "{% url 'gantt-export' %}";
-
         setTimeout(() => {
             isExporting = false;
             btn.disabled = false;
@@ -159,7 +168,6 @@
         }, 5000);
     }
 
-    // --- 5. LOAD CHART ---
     function loadGantt() {
         const container = document.getElementById('gantt');
         container.innerHTML = "";
@@ -174,13 +182,13 @@
                 if(data.length > 0) {
                     ganttChart = new Gantt("#gantt", data, {
                         header_height: 50,
-                        column_width: 30,
+                        column_width: 25, // DIPERKECIL (Default 30) agar lebih muat di layar
                         step: 24,
                         view_modes: ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'],
-                        bar_height: 25,
+                        bar_height: 22, // Sedikit lebih ramping
                         bar_corner_radius: 3,
                         arrow_curve: 5,
-                        padding: 18,
+                        padding: 15,
                         view_mode: 'Week', 
                         date_format: 'YYYY-MM-DD',
                         popup_trigger: 'click mouseover',
@@ -213,34 +221,33 @@
                                 if (data.status === 'success') {
                                     window.location.reload(); 
                                 } else {
-                                    alert("Gagal update tanggal: " + data.error);
+                                    alert("Gagal update: " + data.error);
                                 }
                             });
                         },
                         
                         custom_popup_html: function(task) {
                             return `
-                            <div class="details-container" style="padding:10px; background:white; border:1px solid #ccc; width: 200px; z-index:1000; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
-                              <h6 style="margin:0;">${task.name}</h6>
+                            <div class="details-container" style="padding:10px; background:white; border:1px solid #ccc; width: 200px; z-index:1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius:4px;">
+                              <h6 style="margin:0; font-weight:bold;">${task.name}</h6>
                               <hr style="margin:5px 0;">
-                              <small>Start: ${task.start}</small><br/>
-                              <small>End: ${task.end}</small><br/>
-                              <small>Progress: ${task.progress}%</small>
+                              <div style="font-size:0.85rem;">
+                                  Start: ${task.start}<br/>
+                                  End: ${task.end}<br/>
+                                  Progress: <strong>${task.progress}%</strong>
+                              </div>
                             </div>
                             `;
                         }
                     });
-
-                    // Trigger Auto Scroll setelah chart dimuat
                     scrollToToday();
-
                 } else {
-                    document.querySelector('.gantt-scroll-container').innerHTML = "<div class='text-center p-5 text-muted'>Belum ada data tugas.</div>";
+                    document.getElementById('chart-scroll-container').innerHTML = "<div class='text-center p-5 text-muted'>Belum ada data tugas.</div>";
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                document.querySelector('.gantt-scroll-container').innerHTML = "<p class='text-danger p-3'>Gagal memuat data.</p>";
+                document.getElementById('chart-scroll-container').innerHTML = "<p class='text-danger p-3'>Gagal memuat data.</p>";
             });
     }
 
