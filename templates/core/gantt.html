@@ -1,36 +1,51 @@
 {% extends 'core/base.html' %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <h2>Gantt Chart Timeline</h2>
     
-    <div class="btn-group">
+    <div class="btn-group align-items-center">
+        <!-- PILIHAN VIEW MODE (Hari/Minggu/Bulan) -->
+        <div class="input-group input-group-sm me-2">
+            <label class="input-group-text bg-light fw-bold">👁️ View:</label>
+            <select class="form-select" id="viewModeSelect" onchange="changeViewMode(this.value)">
+                <option value="Day">Harian (Day)</option>
+                <option value="Week" selected>Mingguan (Week)</option>
+                <option value="Month">Bulanan (Month)</option>
+                <option value="Half Day">Setengah Hari (12 Jam)</option>
+                <option value="Quarter Day">Seperempat Hari (6 Jam)</option>
+            </select>
+        </div>
+
         <!-- TOMBOL DOWNLOAD -->
-        <button id="btnDownload" class="btn btn-success" onclick="downloadExcel()">
-            📥 Download Visual Excel
+        <button id="btnDownload" class="btn btn-success btn-sm" onclick="downloadExcel()">
+            📥 Excel
         </button>
         
         <!-- NAVIGASI SCROLL -->
         <div class="btn-group ms-2">
-            <button class="btn btn-outline-secondary" onclick="scrollChart(-200)" title="Geser Kiri">⬅️</button>
-            <button class="btn btn-outline-secondary" onclick="scrollChart(200)" title="Geser Kanan">➡️</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-200)" title="Geser Kiri">⬅️</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(200)" title="Geser Kanan">➡️</button>
         </div>
     </div>
 </div>
 
 <div class="alert alert-info py-2">
-    <small>💡 <strong>Tip:</strong> Drag & Drop bar tugas untuk mengubah jadwal secara langsung.</small>
+    <small>💡 <strong>Tip:</strong> Gunakan dropdown "View" untuk mengubah skala waktu (Harian/Mingguan/Bulanan).</small>
 </div>
 
 <div class="card p-3 shadow-sm">
     <div class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative;">
-        <div id="gantt"></div>
+        <!-- Element Gantt Chart -->
+        <svg id="gantt"></svg>
     </div>
 </div>
 
 <style>
+    /* Styling Custom untuk Gantt */
     .bar-project .bar { fill: #6f42c1 !important; }
     .bar-project .bar-progress { fill: #563d7c !important; }
     .bar-wrapper { cursor: move; }
+    
     .gantt-scroll-container {
         scroll-behavior: smooth;
         border: 1px solid #eee;
@@ -38,17 +53,34 @@
         min-height: 400px;
         background-color: #fff;
     }
+
+    /* Memperbaiki tampilan teks di svg */
+    .gantt .grid-header .tick text {
+        font-size: 12px;
+        fill: #555;
+    }
 </style>
 
 <script>
+    // Variabel Global untuk Chart
+    var ganttChart = null;
+    var tasksData = [];
+
+    // --- 1. FUNGSI SCROLL ---
     function scrollChart(amount) {
         const container = document.querySelector('.gantt-scroll-container');
         if (container) container.scrollLeft += amount;
     }
 
-    // --- LOGIC DOWNLOAD AMAN ---
+    // --- 2. FUNGSI GANTI VIEW MODE ---
+    function changeViewMode(mode) {
+        if (ganttChart) {
+            ganttChart.change_view_mode(mode);
+        }
+    }
+
+    // --- 3. FUNGSI DOWNLOAD EXCEL (Aman) ---
     let isExporting = false;
-    
     function downloadExcel() {
         if (isExporting) return;
         isExporting = true;
@@ -57,9 +89,8 @@
         const originalText = btn.innerHTML;
         
         btn.disabled = true;
-        btn.innerHTML = "⏳ Generating...";
+        btn.innerHTML = "⏳ ...";
 
-        // Langsung panggil URL export tanpa parameter filter
         window.location.href = "{% url 'gantt-export' %}";
 
         setTimeout(() => {
@@ -69,19 +100,21 @@
         }, 5000);
     }
 
+    // --- 4. LOAD GANTT CHART ---
     function loadGantt() {
         const container = document.getElementById('gantt');
         container.innerHTML = "";
         
-        // Panggil data tanpa parameter
         fetch("/gantt/data/")
             .then(response => {
-                if (!response.ok) throw new Error("Gagal mengambil data dari server");
+                if (!response.ok) throw new Error("Gagal mengambil data");
                 return response.json();
             })
             .then(data => {
+                tasksData = data; // Simpan data di variabel global
                 if(data.length > 0) {
-                    var gantt = new Gantt("#gantt", data, {
+                    // Inisialisasi Gantt
+                    ganttChart = new Gantt("#gantt", data, {
                         header_height: 50,
                         column_width: 30,
                         step: 24,
@@ -90,10 +123,11 @@
                         bar_corner_radius: 3,
                         arrow_curve: 5,
                         padding: 18,
-                        view_mode: 'Week', 
+                        view_mode: 'Week', // Default View
                         date_format: 'YYYY-MM-DD',
                         popup_trigger: 'click mouseover',
                         
+                        // Event saat bar digeser
                         on_date_change: function(task, start, end) {
                             if (task.id.startsWith('PROJ')) {
                                 alert("Tanggal Proyek hanya bisa diubah lewat menu Edit Proyek.");
@@ -120,6 +154,7 @@
                             .then(response => response.json())
                             .then(data => {
                                 if (data.status === 'success') {
+                                    // Refresh halaman untuk update dependency
                                     window.location.reload(); 
                                 } else {
                                     alert("Gagal update tanggal: " + data.error);
@@ -127,27 +162,30 @@
                             });
                         },
                         
+                        // Custom Tooltip
                         custom_popup_html: function(task) {
                             return `
-                            <div class="details-container" style="padding:10px; background:white; border:1px solid #ccc; width: 200px; z-index:1000;">
-                              <strong>${task.name}</strong><br/>
-                              <small>${task.start} - ${task.end}</small><br/>
-                              Progress: ${task.progress}%
+                            <div class="details-container" style="padding:10px; background:white; border:1px solid #ccc; width: 200px; z-index:1000; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+                              <h6 style="margin:0;">${task.name}</h6>
+                              <hr style="margin:5px 0;">
+                              <small>Start: ${task.start}</small><br/>
+                              <small>End: ${task.end}</small><br/>
+                              <small>Progress: ${task.progress}%</small>
                             </div>
                             `;
                         }
                     });
                 } else {
-                    container.innerHTML = "<div class='text-center p-5 text-muted'>Tidak ada data tugas.</div>";
+                    document.querySelector('.gantt-scroll-container').innerHTML = "<div class='text-center p-5 text-muted'>Belum ada data tugas.</div>";
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                container.innerHTML = "<p class='text-danger p-3'>Gagal memuat data Gantt Chart.</p>";
+                document.querySelector('.gantt-scroll-container').innerHTML = "<p class='text-danger p-3'>Gagal memuat data.</p>";
             });
     }
 
-    // Load
+    // Jalankan saat load
     loadGantt();
 </script>
 {% endblock %}
