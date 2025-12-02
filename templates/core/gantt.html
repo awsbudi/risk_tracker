@@ -14,10 +14,11 @@
     </div>
 
     <div class="btn-group ms-2">
-        <!-- TOMBOL DOWNLOAD -->
-        <button class="btn btn-success btn-sm" onclick="downloadExcel()">📥 Download Visual Excel</button>
+        <!-- TOMBOL DOWNLOAD DENGAN ID 'btnDownload' -->
+        <button id="btnDownload" class="btn btn-success btn-sm" onclick="downloadExcel()">
+            📥 Download Visual Excel
+        </button>
         
-        <!-- NAVIGASI SCROLL -->
         <div class="btn-group ms-2">
             <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(-200)" title="Geser Kiri">⬅️</button>
             <button class="btn btn-outline-secondary btn-sm" onclick="scrollChart(200)" title="Geser Kanan">➡️</button>
@@ -26,10 +27,9 @@
 </div>
 
 <div class="alert alert-info py-2">
-    <small>💡 <strong>Tip:</strong> Drag bar tugas untuk ubah jadwal. Gunakan filter tanggal untuk melihat periode spesifik.</small>
+    <small>💡 <strong>Tip:</strong> Drag bar tugas untuk ubah jadwal. Gunakan filter untuk periode spesifik.</small>
 </div>
 
-<!-- CONTAINER SCROLLABLE -->
 <div class="card p-3 shadow-sm">
     <div class="gantt-scroll-container" style="overflow-x: auto; white-space: nowrap; position: relative;">
         <div id="gantt"></div>
@@ -63,6 +63,7 @@
     }
 
     function applyFilter() {
+        // Ambil parameter, lalu reload chart
         const params = getFilterParams();
         loadGantt(params);
     }
@@ -73,15 +74,36 @@
         loadGantt("");
     }
 
+    // --- LOGIC DOWNLOAD AMAN (Anti Spam Klik) ---
+    let isExporting = false;
+    
     function downloadExcel() {
+        if (isExporting) return; // Stop jika sedang proses
+        isExporting = true;
+        
+        const btn = document.getElementById('btnDownload');
+        const originalText = btn.innerHTML;
+        
+        // 1. Matikan Tombol & Kasih Feedback
+        btn.disabled = true;
+        btn.innerHTML = "⏳ Generating...";
+
+        // 2. Redirect ke URL Download
         const params = getFilterParams();
-        // Redirect ke URL Export dengan parameter filter
         window.location.href = "{% url 'gantt-export' %}" + params;
+
+        // 3. Hidupkan kembali setelah 5 detik (Estimasi waktu download)
+        // Kita pakai timer karena browser tidak memberi callback saat download selesai
+        setTimeout(() => {
+            isExporting = false;
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }, 5000);
     }
 
     function loadGantt(queryParams) {
         const container = document.getElementById('gantt');
-        container.innerHTML = ""; // Clear old chart
+        container.innerHTML = ""; // Bersihkan chart lama
         
         fetch("/gantt/data/" + queryParams)
             .then(response => {
@@ -90,6 +112,7 @@
             })
             .then(data => {
                 if(data.length > 0) {
+                    // Re-instansiasi Frappe Gantt
                     var gantt = new Gantt("#gantt", data, {
                         header_height: 50,
                         column_width: 30,
@@ -118,6 +141,7 @@
                                 return [year, month, day].join('-');
                             };
 
+                            // Update Tanggal via API
                             fetch(`/tugas/${task.id}/update-date/`, {
                                 method: 'POST',
                                 headers: {
@@ -129,6 +153,8 @@
                             .then(response => response.json())
                             .then(data => {
                                 if (data.status === 'success') {
+                                    // PENTING: Reload halaman agar posisi bar kembali rapi
+                                    // dan efek 'domino' terlihat
                                     window.location.reload(); 
                                 } else {
                                     alert("Gagal update tanggal: " + data.error);
@@ -147,7 +173,7 @@
                         }
                     });
                 } else {
-                    container.innerHTML = "<p class='text-muted p-3'>Tidak ada data tugas untuk periode ini.</p>";
+                    container.innerHTML = "<div class='text-center p-5 text-muted'>Tidak ada data tugas untuk periode ini. <br>Coba ubah filter tanggal.</div>";
                 }
             })
             .catch(error => {
@@ -156,7 +182,7 @@
             });
     }
 
-    // Load initial
+    // Load pertama kali
     loadGantt("");
 </script>
 {% endblock %}
