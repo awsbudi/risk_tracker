@@ -4,7 +4,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic import ListView, CreateView, UpdateView, DetailView, DeleteView
 from django.urls import reverse_lazy
 from django.http import JsonResponse, HttpResponseForbidden, HttpResponse
-from django.db.models import Q
+from django.db.models import Q, Min, Max
 from django.contrib import messages
 from django.core.management import call_command
 from django.views.decorators.csrf import csrf_exempt
@@ -12,7 +12,8 @@ import json
 from datetime import timedelta, datetime, date
 import calendar
 import openpyxl 
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # Import Models & Forms
 from .models import Proyek, Tugas, TemplateBAU 
@@ -289,7 +290,7 @@ def gantt_data(request):
         })
     return JsonResponse(data, safe=False)
 
-# --- NEW: EXPORT EXCEL ---
+# --- NEW: EXPORT EXCEL VISUAL GANTT ---
 @login_required
 def export_gantt_excel(request):
     user = request.user
@@ -300,51 +301,139 @@ def export_gantt_excel(request):
         if group: tasks = tasks.filter(pemilik_grup=group)
         else: return HttpResponseForbidden("Anda tidak punya grup.")
     
+    # Filter Date
     start_filter = request.GET.get('start')
     end_filter = request.GET.get('end')
     filter_info = "Semua Periode"
     
+    # Menentukan range tanggal Chart
+    global_start = date.today()
+    global_end = date.today() + timedelta(days=30) # Default 30 hari
+
+    # Terapkan Filter Query
     if start_filter and end_filter:
         try:
             filter_start = datetime.strptime(start_filter, "%Y-%m-%d").date()
             filter_end = datetime.strptime(end_filter, "%Y-%m-%d").date()
             tasks = tasks.filter(tanggal_mulai__lte=filter_end, tenggat_waktu__gte=filter_start)
             filter_info = f"Periode: {start_filter} s/d {end_filter}"
+            
+            global_start = filter_start
+            global_end = filter_end
         except ValueError: pass
+    else:
+        # Jika tidak ada filter, cari Min Start dan Max End dari seluruh data
+        if tasks.exists():
+            global_start = tasks.aggregate(Min('tanggal_mulai'))['tanggal_mulai__min']
+            global_end = tasks.aggregate(Max('tenggat_waktu'))['tenggat_waktu__max']
 
+    # Safety: Jika masih None (data kosong)
+    if not global_start: global_start = date.today()
+    if not global_end: global_end = date.today() + timedelta(days=30)
+
+    # Buat Workbook
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Laporan Gantt"
-    ws['A1'] = "LAPORAN STATUS TUGAS"
-    ws['A1'].font = Font(bold=True, size=14)
+    ws.title = "Gantt Visual"
+
+    # --- STYLE ---
+    # Warna Header
+    header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    # Warna Bar Tugas
+    bar_fill_todo = PatternFill(start_color="3498DB", end_color="3498DB", fill_type="solid") # Biru
+    bar_fill_done = PatternFill(start_color="2ECC71", end_color="2ECC71", fill_type="solid") # Hijau
+    bar_fill_overdue = PatternFill(start_color="E74C3C", end_color="E74C3C", fill_type="solid") # Merah
+
+    # --- HEADER LAPORAN ---
+    ws['A1'] = "PROJECT GANTT CHART"
+    ws['A1'].font = Font(bold=True, size=16)
     ws['A2'] = filter_info
     
-    headers = ["Kode", "Nama Tugas", "Tipe", "Start", "End", "PIC", "Status", "Progress", "Dependency"]
-    ws.append([])
-    ws.append(headers)
-    
-    for cell in ws[4]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill(start_color="2c3e50", end_color="2c3e50", fill_type="solid")
+    # --- HEADER TABEL (DATA) ---
+    # Kolom A-E untuk data teks
+    data_headers = ["KODE", "NAMA TUGAS", "PIC", "START", "END"]
+    for idx, h in enumerate(data_headers, 1):
+        cell = ws.cell(row=4, column=idx)
+        cell.value = h
+        cell.fill = header_fill
+        cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
+    # --- HEADER KALENDER (TIMELINE) ---
+    # Mulai dari Kolom F (Index 6)
+    timeline_start_col = 6
+    current_date = global_start
+    col_idx = timeline_start_col
+    
+    # Loop untuk membuat kolom tanggal (misal Max 60 hari agar file tidak meledak)
+    # Jika range terlalu besar, batasi atau ganti mode ke Mingguan. Di sini kita pakai Harian.
+    while current_date <= global_end:
+        cell = ws.cell(row=4, column=col_idx)
+        cell.value = current_date.day # Tampilkan tanggal (tgl 1, 2, 3...)
+        cell.font = Font(size=9)
+        cell.alignment = Alignment(horizontal="center")
+        
+        # Tandai weekend dengan warna abu-abu
+        if current_date.weekday() >= 5: # Sat/Sun
+            cell.fill = PatternFill(start_color="ECF0F1", end_color="ECF0F1", fill_type="solid")
+            
+        # Set lebar kolom kecil
+        col_letter = get_column_letter(col_idx)
+        ws.column_dimensions[col_letter].width = 3 
+        
+        current_date += timedelta(days=1)
+        col_idx += 1
+
+    # --- ISI DATA TUGAS ---
+    row_idx = 5
     for t in tasks:
-        pic = t.ditugaskan_ke.username if t.ditugaskan_ke else "-"
-        dep = t.tergantung_pada.kode_tugas if t.tergantung_pada else "-"
-        ws.append([
-            t.kode_tugas, 
-            t.nama_tugas, 
-            t.tipe_tugas,
-            t.tanggal_mulai, 
-            t.tenggat_waktu, 
-            pic, 
-            t.get_status_display(), 
-            f"{t.progress}%", 
-            dep
-        ])
+        # Data Teks
+        ws.cell(row=row_idx, column=1).value = t.kode_tugas
+        ws.cell(row=row_idx, column=2).value = t.nama_tugas
+        ws.cell(row=row_idx, column=3).value = t.ditugaskan_ke.username if t.ditugaskan_ke else "-"
+        ws.cell(row=row_idx, column=4).value = t.tanggal_mulai
+        ws.cell(row=row_idx, column=5).value = t.tenggat_waktu
+        
+        # --- GAMBAR BAR GANTT ---
+        # Hitung posisi kolom start dan end tugas ini relatif terhadap global_start
+        # Logic: (Start Tugas - Global Start).days
+        
+        # Validasi tanggal agar tidak error jika di luar range (meski sudah difilter)
+        t_start = max(t.tanggal_mulai, global_start)
+        t_end = min(t.tenggat_waktu, global_end)
+        
+        if t_end >= t_start: # Hanya gambar jika valid
+            start_offset = (t_start - global_start).days
+            duration_days = (t_end - t_start).days + 1
+            
+            col_start = timeline_start_col + start_offset
+            col_end = col_start + duration_days
+            
+            # Tentukan Warna Bar
+            fill_color = bar_fill_todo
+            if t.status == 'DONE': fill_color = bar_fill_done
+            elif t.status == 'OVERDUE': fill_color = bar_fill_overdue
+            
+            # Warnai Sel
+            for c in range(col_start, col_end):
+                cell = ws.cell(row=row_idx, column=c)
+                cell.fill = fill_color
+                # Tambahkan border tipis agar terlihat kotak
+                thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+                cell.border = thin_border
+
+        row_idx += 1
+
+    # Auto Width untuk kolom Data
+    ws.column_dimensions['A'].width = 12
+    ws.column_dimensions['B'].width = 30
+    ws.column_dimensions['C'].width = 10
+    ws.column_dimensions['D'].width = 12
+    ws.column_dimensions['E'].width = 12
 
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    filename = f"Laporan_Gantt_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    filename = f"Gantt_Visual_{datetime.now().strftime('%Y%m%d')}.xlsx"
     response['Content-Disposition'] = f'attachment; filename={filename}'
     wb.save(response)
     return response
