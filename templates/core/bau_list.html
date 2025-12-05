@@ -2,12 +2,7 @@
 {% block content %}
 <div class="d-flex justify-content-between mb-3 align-items-center">
     <h2>Template Tugas Rutin (BAU)</h2>
-    <div>
-        <a href="{% url 'bau-generate' %}" class="btn btn-success me-2" onclick="return confirm('Generate tugas rutin untuk periode ini?');">
-            ⚡ Generate Tugas Sekarang
-        </a>
-        <a href="{% url 'bau-create' %}" class="btn btn-primary">+ Template Baru</a>
-    </div>
+    <a href="{% url 'bau-create' %}" class="btn btn-primary">+ Template Baru</a>
 </div>
 
 {% if messages %}
@@ -19,30 +14,51 @@
     {% endfor %}
 {% endif %}
 
-<div class="alert alert-secondary">
+<div class="alert alert-info shadow-sm">
     <small>
-        <strong>Info:</strong> Template ini digunakan untuk membuat tugas secara otomatis (misal: Laporan Bulanan). 
-        Klik "Generate Tugas Sekarang" untuk memproses template secara manual saat ini juga.
+        <strong>Info:</strong> Gunakan tombol <strong>⚡ Generate</strong> pada kartu di bawah untuk membuat tugas otomatis sesuai frekuensi (misal: Harian akan membuat tugas untuk setiap hari kerja di bulan ini).
     </small>
 </div>
 
 <div class="row">
     {% for bau in bau_list %}
     <div class="col-md-4 mb-3">
-        <div class="card h-100 shadow-sm border-info">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center border-0 pt-3">
+                <span class="badge bg-info text-dark">{{ bau.get_frekuensi_display }}</span>
+                
+                <!-- REQ 3: Menu Edit/Hapus -->
+                <div class="dropdown">
+                    <button class="btn btn-link text-dark p-0 text-decoration-none" data-bs-toggle="dropdown" style="font-size: 1.2rem;">⋮</button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{% url 'bau-update' bau.pk %}">✏️ Edit Template</a></li>
+                        <li><a class="dropdown-item text-danger" href="{% url 'bau-delete' bau.pk %}">🗑️ Hapus</a></li>
+                    </ul>
+                </div>
+            </div>
+            
             <div class="card-body">
-                <h5 class="card-title">{{ bau.nama_tugas }}</h5>
-                <span class="badge bg-info mb-2">{{ bau.get_frekuensi_display }}</span>
-                <p class="card-text text-muted">{{ bau.deskripsi|default:"-" }}</p>
-                <small class="text-muted">
-                    PIC Default: <strong>{{ bau.default_pic.username|default:"Belum diset" }}</strong>
-                </small>
+                <h5 class="card-title text-dark fw-bold">{{ bau.nama_tugas }}</h5>
+                <p class="card-text text-muted small">{{ bau.deskripsi|default:"Tidak ada deskripsi" }}</p>
+                <hr>
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        PIC: <strong>{{ bau.default_pic.username|default:"-" }}</strong>
+                    </small>
+                    
+                    <!-- REQ 7: Tombol Generate per Item -->
+                    <a href="{% url 'bau-generate-single' bau.pk %}" 
+                       class="btn btn-sm btn-success" 
+                       onclick="return confirm('Generate tugas untuk {{ bau.nama_tugas }} bulan ini?');">
+                       ⚡ Generate
+                    </a>
+                </div>
             </div>
         </div>
     </div>
     {% empty %}
-    <div class="col-12 text-center text-muted">
-        <p>Belum ada template BAU. Silakan buat satu.</p>
+    <div class="col-12 text-center text-muted py-5">
+        <p class="mb-0">Belum ada template. Silakan buat baru.</p>
     </div>
     {% endfor %}
 </div>

@@ -27,14 +27,18 @@ urlpatterns = [
     # Gantt & Export
     path('gantt/', views.gantt_view, name='gantt-view'),
     path('gantt/data/', views.gantt_data, name='gantt-data'),
-    path('gantt/export/', views.export_gantt_excel, name='gantt-export'), # NEW: Export
+    path('gantt/export/', views.export_gantt_excel, name='gantt-export'),
 
     # Kalender
     path('calendar/', views.calendar_view, name='calendar-view'),
     path('calendar/data/', views.calendar_data, name='calendar-data'),
     
-    # BAU Templates
+    # BAU Templates (UPDATED)
     path('bau/', views.TemplateBAUListView.as_view(), name='bau-list'),
     path('bau/baru/', views.TemplateBAUCreateView.as_view(), name='bau-create'),
-    path('bau/generate/', views.trigger_bau_generation, name='bau-generate'),
+    
+    # NEW ROUTES: Edit, Delete, Generate Single
+    path('bau/<int:pk>/edit/', views.TemplateBAUUpdateView.as_view(), name='bau-update'), 
+    path('bau/<int:pk>/hapus/', views.TemplateBAUDeleteView.as_view(), name='bau-delete'), 
+    path('bau/generate/<int:pk>/', views.trigger_bau_single, name='bau-generate-single'), 
 ]

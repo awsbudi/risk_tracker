@@ -48,7 +48,6 @@ class Proyek(models.Model):
         verbose_name_plural = "Proyek"
 
     def clean(self):
-        # Validasi Proyek juga: Selesai tidak boleh sebelum Mulai
         if self.tanggal_mulai and self.tanggal_selesai:
             if self.tanggal_selesai < self.tanggal_mulai:
                 raise ValidationError({'tanggal_selesai': 'Tanggal selesai proyek tidak boleh mendahului tanggal mulai.'})
@@ -98,20 +97,17 @@ class Tugas(models.Model):
         verbose_name_plural = "Tugas"
 
     def clean(self):
-        # 1. Validasi Tipe Tugas & Proyek
         if self.tipe_tugas in ['BAU', 'ADHOC']:
             self.proyek = None 
         elif self.tipe_tugas == 'PROJECT' and not self.proyek:
             raise ValidationError({'proyek': 'Tugas tipe Proyek WAJIB memilih Proyek.'})
 
-        # 2. Validasi Internal Tanggal (NEW)
         if self.tanggal_mulai and self.tenggat_waktu:
             if self.tenggat_waktu < self.tanggal_mulai:
                 raise ValidationError({
                     'tenggat_waktu': f'Tenggat waktu ({self.tenggat_waktu}) tidak boleh lebih awal dari tanggal mulai ({self.tanggal_mulai}).'
                 })
 
-        # 3. Validasi Relasional (Proyek, Induk, Dependency)
         if self.tanggal_mulai:
             if self.proyek and self.tanggal_mulai < self.proyek.tanggal_mulai:
                 raise ValidationError({
@@ -154,6 +150,7 @@ class Tugas(models.Model):
 
 class TemplateBAU(models.Model):
     FREKUENSI_CHOICES = [
+        ('DAILY', 'Harian'),  # NEW: REQ 1 - Tambah opsi harian
         ('WEEKLY', 'Mingguan'),
         ('MONTHLY', 'Bulanan'),
         ('QUARTERLY', 'Triwulan'),
@@ -164,7 +161,6 @@ class TemplateBAU(models.Model):
     deskripsi = models.TextField(blank=True)
     frekuensi = models.CharField(max_length=20, choices=FREKUENSI_CHOICES)
     
-    # Siapa yang biasanya mengerjakan?
     default_pic = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     pemilik_grup = models.ForeignKey(Group, on_delete=models.CASCADE)
     
@@ -176,3 +172,21 @@ class TemplateBAU(models.Model):
 
     def __str__(self):
         return f"{self.nama_tugas} ({self.frekuensi})"
+
+# NEW: REQ 5 - Model Audit Log
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('CREATE', 'Membuat'),
+        ('UPDATE', 'Mengubah'),
+        ('DELETE', 'Menghapus'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    target_model = models.CharField(max_length=50) # 'Proyek' atau 'Tugas'
+    target_id = models.CharField(max_length=50)    # ID atau Kode objek
+    details = models.TextField()                   # Apa yang berubah?
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user} {self.action} {self.target_model} at {self.timestamp}"

@@ -16,7 +16,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # Import Models & Forms
-from .models import Proyek, Tugas, TemplateBAU 
+from .models import Proyek, Tugas, TemplateBAU, AuditLog
 from .forms import ProyekForm, TugasForm
 
 # --- HELPER: ROLE CHECKER ---
@@ -32,14 +32,43 @@ def is_leader(user):
 def is_member(user):
     return get_role(user) == 'MEMBER'
 
+# --- HELPER: LOGGING (REQ 5) ---
+def log_activity(user, action, model_name, obj_id, details):
+    try:
+        AuditLog.objects.create(
+            user=user,
+            action=action,
+            target_model=model_name,
+            target_id=str(obj_id),
+            details=details
+        )
+    except Exception as e:
+        print(f"Failed to create log: {e}")
+
 # --- MIXINS ---
 class GroupAccessMixin:
+    """
+    REQ 2: User bisa melihat tugas jika:
+    1. Dia adalah Superuser
+    2. Tugas itu milik Group-nya
+    3. Tugas itu DITUGASKAN ke dia (walau beda grup)
+    """
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_superuser: 
             return qs
-        return qs.filter(pemilik_grup=user.groups.first())
+        
+        user_group = user.groups.first()
+        
+        # Jika modelnya Tugas, cek assignee juga
+        if self.model == Tugas:
+            return qs.filter(
+                Q(pemilik_grup=user_group) | 
+                Q(ditugaskan_ke=user)
+            ).distinct()
+            
+        return qs.filter(pemilik_grup=user_group)
 
 # --- DASHBOARD ---
 @login_required
@@ -47,16 +76,13 @@ def dashboard(request):
     user = request.user
     group = user.groups.first()
     
-    tasks = Tugas.objects.all()
-    projects = Proyek.objects.all()
-    
-    if not user.is_superuser:
-        if group:
-            tasks = tasks.filter(pemilik_grup=group)
-            projects = projects.filter(pemilik_grup=group)
-        else:
-            tasks = tasks.none()
-            projects = projects.none()
+    if user.is_superuser:
+        tasks = Tugas.objects.all()
+        projects = Proyek.objects.all()
+    else:
+        # REQ 2: Filter visibilitas dashboard
+        tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
+        projects = Proyek.objects.filter(pemilik_grup=group)
     
     context = {
         'total_projects': projects.count(),
@@ -91,7 +117,9 @@ class ProyekCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
             return self.form_invalid(form)
         form.instance.pemilik_grup = user_group
         form.instance.dibuat_oleh = self.request.user
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        log_activity(self.request.user, 'CREATE', 'Proyek', self.object.kode_proyek, f"Created: {self.object.nama_proyek}")
+        return response
 
 class ProyekUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Proyek
@@ -102,6 +130,11 @@ class ProyekUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     def test_func(self):
         return is_admin(self.request.user)
 
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        log_activity(self.request.user, 'UPDATE', 'Proyek', self.object.kode_proyek, "Updated details")
+        return response
+
 class ProyekDetailView(LoginRequiredMixin, GroupAccessMixin, DetailView):
     model = Proyek
     template_name = 'core/proyek_detail.html'
@@ -111,6 +144,11 @@ class ProyekDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     template_name = 'core/confirm_delete.html'
     success_url = reverse_lazy('proyek-list')
     def test_func(self): return is_admin(self.request.user)
+    
+    def delete(self, request, *args, **kwargs):
+        obj = self.get_object()
+        log_activity(request.user, 'DELETE', 'Proyek', obj.kode_proyek, f"Deleted: {obj.nama_proyek}")
+        return super().delete(request, *args, **kwargs)
 
 
 # --- TUGAS VIEWS ---
@@ -120,6 +158,7 @@ class TugasListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     context_object_name = 'tugas_list'
     
     def get_queryset(self): 
+        # REQ 4: Pastikan urutan tugas konsisten
         return super().get_queryset().order_by('kode_tugas')
 
 class TugasCreateView(LoginRequiredMixin, CreateView):
@@ -128,7 +167,6 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
     template_name = 'core/tugas_form.html'
     success_url = reverse_lazy('tugas-list')
 
-    # Auto Fill Server Side (saat klik +)
     def get_initial(self):
         initial = super().get_initial()
         parent_id = self.request.GET.get('parent_id')
@@ -152,7 +190,9 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
             form.add_error(None, "ERROR: User tidak punya grup.")
             return self.form_invalid(form)
         form.instance.pemilik_grup = user_group
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        log_activity(self.request.user, 'CREATE', 'Tugas', self.object.kode_tugas, f"Created: {self.object.nama_tugas}")
+        return response
 
 class TugasUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Tugas
@@ -172,11 +212,23 @@ class TugasUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         if is_member(user): return obj.ditugaskan_ke == user
         return False
 
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if form.has_changed():
+            changes = ", ".join(form.changed_data)
+            log_activity(self.request.user, 'UPDATE', 'Tugas', self.object.kode_tugas, f"Changed: {changes}")
+        return response
+
 class TugasDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Tugas
     template_name = 'core/confirm_delete.html'
     success_url = reverse_lazy('tugas-list')
     def test_func(self): return is_admin(self.request.user)
+    
+    def delete(self, request, *args, **kwargs):
+        obj = self.get_object()
+        log_activity(request.user, 'DELETE', 'Tugas', obj.kode_tugas, f"Deleted: {obj.nama_tugas}")
+        return super().delete(request, *args, **kwargs)
 
 
 # --- API HELPERS (Dates, Gantt, Progress) ---
@@ -209,12 +261,16 @@ def update_progress_api(request, pk):
             new_progress = int(data.get('progress', 0))
             task = get_object_or_404(Tugas, pk=pk)
             
+            old_progress = task.progress
             task.progress = new_progress
             if new_progress == 100: task.status = 'DONE'
             elif new_progress > 0 and task.status == 'TODO': task.status = 'IN_PROGRESS'
             elif new_progress == 0: task.status = 'TODO'
             
             task.save()
+            # Log Progress Change
+            log_activity(request.user, 'UPDATE', 'Tugas', task.kode_tugas, f"Progress updated: {old_progress}% -> {new_progress}%")
+            
             return JsonResponse({'status': 'success', 'new_status': task.get_status_display()})
         except Exception as e: return JsonResponse({'error': str(e)}, status=400)
     return JsonResponse({'error': 'Invalid method'}, status=405)
@@ -231,15 +287,24 @@ def update_task_date_api(request, pk):
             new_end = datetime.strptime(end_str, "%Y-%m-%d").date()
 
             user = request.user
-            if not (user.is_superuser or is_admin(user) or is_leader(user)):
-                task_check = get_object_or_404(Tugas, pk=pk)
-                if task_check.ditugaskan_ke != user:
-                     return JsonResponse({'error': 'Permission denied'}, status=403)
-
             task = get_object_or_404(Tugas, pk=pk)
+            
+            # Permission check
+            has_perm = False
+            if user.is_superuser or is_admin(user) or is_leader(user): has_perm = True
+            elif task.ditugaskan_ke == user: has_perm = True
+            
+            if not has_perm:
+                return JsonResponse({'error': 'Permission denied'}, status=403)
+
+            # Log change
+            old_start, old_end = task.tanggal_mulai, task.tenggat_waktu
+            
             task.tanggal_mulai = new_start
             task.tenggat_waktu = new_end
             task.save()
+            
+            log_activity(user, 'UPDATE', 'Tugas', task.kode_tugas, f"Gantt Drag: {old_start} -> {new_start}")
 
             # Cascade Logic
             def push_dependents(parent_task):
@@ -250,6 +315,8 @@ def update_task_date_api(request, pk):
                         child.tanggal_mulai = parent_task.tenggat_waktu
                         child.tenggat_waktu = child.tanggal_mulai + duration
                         child.save()
+                        
+                        log_activity(user, 'UPDATE', 'Tugas', child.kode_tugas, f"Auto-pushed by {parent_task.kode_tugas}")
                         push_dependents(child)
 
             push_dependents(task)
@@ -266,16 +333,18 @@ def update_task_date_api(request, pk):
 def gantt_data(request):
     user = request.user
     group = user.groups.first()
-    tasks = Tugas.objects.all()
-    projects = Proyek.objects.all()
     
-    if not user.is_superuser:
-        if group:
-            tasks = tasks.filter(pemilik_grup=group)
-            projects = projects.filter(pemilik_grup=group)
-        else: return JsonResponse([], safe=False)
-    
-    # FILTER LOGIC DIHAPUS (DROP)
+    # REQ 2: User melihat tugas grupnya + tugas yang diassign ke dia
+    if user.is_superuser:
+        tasks = Tugas.objects.all()
+        projects = Proyek.objects.all()
+    else:
+        tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
+        projects = Proyek.objects.filter(pemilik_grup=group)
+
+    # REQ 4: Sorting agar row tidak loncat
+    tasks = tasks.order_by('kode_tugas')
+    projects = projects.order_by('kode_proyek')
     
     data = []
     for p in projects:
@@ -303,13 +372,16 @@ def gantt_view(request):
 def export_gantt_excel(request):
     user = request.user
     group = user.groups.first()
-    tasks = Tugas.objects.all()
     
-    if not user.is_superuser:
-        if group: tasks = tasks.filter(pemilik_grup=group)
-        else: return HttpResponseForbidden("Anda tidak punya grup.")
+    if user.is_superuser:
+        tasks = Tugas.objects.all()
+    else:
+        # REQ 2: Filter export juga sama
+        tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
     
-    # Filter Dihapus, Otomatis deteksi range dari seluruh data
+    # REQ 4: Sorting di Excel juga
+    tasks = tasks.order_by('kode_tugas')
+    
     global_start = None
     global_end = None
 
@@ -320,11 +392,9 @@ def export_gantt_excel(request):
     if not global_start: global_start = date.today()
     if not global_end: global_end = date.today() + timedelta(days=30)
     
-    # Safety Check: Jangan sampai kolomnya ribuan (max 1 tahun)
     if (global_end - global_start).days > 365:
         global_end = global_start + timedelta(days=365)
 
-    # Setup Excel
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Gantt Visual"
@@ -343,7 +413,6 @@ def export_gantt_excel(request):
     ws['A1'].font = Font(bold=True, size=16)
     ws['A2'] = "Laporan Seluruh Tugas"
     
-    # Header Kiri
     data_headers = ["KODE", "NAMA TUGAS", "PIC", "START", "END"]
     for idx, h in enumerate(data_headers, 1):
         cell = ws.cell(row=4, column=idx)
@@ -352,7 +421,6 @@ def export_gantt_excel(request):
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
 
-    # Header Kanan (Timeline)
     timeline_start_col = 6
     current_date = global_start
     col_idx = timeline_start_col
@@ -372,7 +440,6 @@ def export_gantt_excel(request):
         current_date += timedelta(days=1)
         col_idx += 1
 
-    # Isi Data
     row_idx = 5
     for t in tasks:
         ws.cell(row=row_idx, column=1).value = t.kode_tugas
@@ -381,7 +448,6 @@ def export_gantt_excel(request):
         ws.cell(row=row_idx, column=4).value = t.tanggal_mulai
         ws.cell(row=row_idx, column=5).value = t.tenggat_waktu
         
-        # Gambar Bar
         t_start = max(t.tanggal_mulai, global_start)
         t_end = min(t.tenggat_waktu, global_end)
         
@@ -417,7 +483,8 @@ def export_gantt_excel(request):
     return response
 
 
-# --- BAU / ROUTINE TASKS ---
+# --- BAU / ROUTINE TASKS (UPDATED) ---
+
 class TemplateBAUListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     model = TemplateBAU
     template_name = 'core/bau_list.html'
@@ -436,17 +503,97 @@ class TemplateBAUCreateView(LoginRequiredMixin, CreateView):
         form.instance.pemilik_grup = user_group
         return super().form_valid(form)
 
-@login_required
-def trigger_bau_generation(request):
-    if not (request.user.is_superuser or is_admin(request.user) or is_leader(request.user)):
-        messages.error(request, "Anda tidak memiliki izin menjalankan generator.")
-        return redirect('bau-list')
-    try:
-        call_command('generate_bau')
-        messages.success(request, "Tugas rutin berhasil digenerate! Cek Daftar Tugas.")
-    except Exception as e: messages.error(request, f"Gagal generate: {str(e)}")
-    return redirect('bau-list')
+# REQ 3: Edit/Delete Template
+class TemplateBAUUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+    model = TemplateBAU
+    fields = ['nama_tugas', 'deskripsi', 'frekuensi', 'default_pic']
+    template_name = 'core/bau_form.html'
+    success_url = reverse_lazy('bau-list')
+    def test_func(self): return is_admin(self.request.user) or is_leader(self.request.user)
 
+class TemplateBAUDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = TemplateBAU
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('bau-list')
+    def test_func(self): return is_admin(self.request.user) or is_leader(self.request.user)
+
+# REQ 6 & 7: Generate Batch (1 Bulan)
+@login_required
+def trigger_bau_single(request, pk):
+    # Cek Permission (Sama seperti tombol lama)
+    if not (request.user.is_superuser or is_admin(request.user) or is_leader(request.user)):
+        messages.error(request, "Anda tidak memiliki izin.")
+        return redirect('bau-list')
+
+    template = get_object_or_404(TemplateBAU, pk=pk)
+    today = date.today()
+    
+    # Generate untuk 1 bulan ini (dari hari ini sampai akhir bulan)
+    start_of_month = today.replace(day=1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    end_of_month = today.replace(day=last_day)
+    
+    created_count = 0
+    current = today # Mulai dari hari ini
+    
+    # Jika awal bulan sudah lewat, kita generate sisa bulan saja
+    # Kecuali mau paksa dari tgl 1 (tergantung kebutuhan).
+    # Disini saya set dari start_of_month agar kalender penuh.
+    current = start_of_month 
+    
+    while current <= end_of_month:
+        should_create = False
+        
+        if template.frekuensi == 'DAILY':
+            # Skip weekend (Sabtu=5, Minggu=6)
+            if current.weekday() < 5: 
+                should_create = True
+                
+        elif template.frekuensi == 'WEEKLY':
+            # Generate setiap Senin (0)
+            if current.weekday() == 0: 
+                should_create = True
+                
+        elif template.frekuensi == 'MONTHLY':
+            if current.day == 1:
+                should_create = True
+        
+        elif template.frekuensi == 'QUARTERLY':
+            # Jan, Apr, Jul, Oct tanggal 1
+            if current.day == 1 and current.month in [1, 4, 7, 10]:
+                should_create = True
+                
+        elif template.frekuensi == 'YEARLY':
+            if current.day == 1 and current.month == 1:
+                should_create = True
+
+        if should_create:
+            # Cek Duplikasi agar tidak double
+            # Format Kode Unik: BAU-{ID}-{YYYYMMDD}
+            tugas_code = f"BAU-{template.id}-{current.strftime('%Y%m%d')}"
+            
+            if not Tugas.objects.filter(kode_tugas=tugas_code).exists():
+                Tugas.objects.create(
+                    kode_tugas=tugas_code,
+                    nama_tugas=f"{template.nama_tugas} ({current.strftime('%d %b')})",
+                    tipe_tugas='BAU',
+                    tanggal_mulai=current,
+                    tenggat_waktu=current, # Deadline hari itu juga
+                    ditugaskan_ke=template.default_pic,
+                    pemilik_grup=template.pemilik_grup,
+                    status='TODO'
+                )
+                created_count += 1
+        
+        current += timedelta(days=1)
+
+    if created_count > 0:
+        messages.success(request, f"Berhasil generate {created_count} tugas untuk '{template.nama_tugas}' bulan ini.")
+        log_activity(request.user, 'CREATE', 'BatchBAU', str(pk), f"Generated {created_count} tasks")
+    else:
+        messages.warning(request, "Tidak ada tugas baru yang dibuat (mungkin sudah ada atau bukan jadwalnya).")
+        
+    return redirect('bau-list')
 
 # --- CALENDAR (OPSIONAL) ---
 @login_required
@@ -457,10 +604,13 @@ def calendar_view(request):
 def calendar_data(request):
     user = request.user
     group = user.groups.first()
-    tasks = Tugas.objects.all()
-    if not user.is_superuser:
-        if group: tasks = tasks.filter(pemilik_grup=group)
-        else: return JsonResponse([], safe=False)
+    
+    # REQ 2: Calendar juga pakai filter visibilitas baru
+    if user.is_superuser:
+        tasks = Tugas.objects.all()
+    else:
+        tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
+        
     events = []
     for t in tasks:
         color = '#3788d8'
