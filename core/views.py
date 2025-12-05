@@ -45,36 +45,51 @@ def log_activity(user, action, model_name, obj_id, details):
     except Exception as e:
         print(f"Failed to create log: {e}")
 
-# --- MIXINS ---
+# --- MIXINS (UPDATED FOR MULTI-GROUP) ---
 class GroupAccessMixin:
+    """
+    REQ 2 FIX: User bisa melihat tugas jika:
+    1. Dia adalah Superuser
+    2. Tugas itu milik SALAH SATU Group-nya (user.groups.all)
+    3. Tugas itu DITUGASKAN ke dia (walau beda grup)
+    """
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
+        
         if user.is_superuser: 
             return qs
         
-        user_group = user.groups.first()
+        # FIX: Ambil semua grup, bukan cuma yang pertama
+        user_groups = user.groups.all()
         
         if self.model == Tugas:
             return qs.filter(
-                Q(pemilik_grup=user_group) | 
+                Q(pemilik_grup__in=user_groups) |  # Cek apakah grup tugas ada di list grup user
                 Q(ditugaskan_ke=user)
             ).distinct()
             
-        return qs.filter(pemilik_grup=user_group)
+        # Untuk Proyek/Template
+        return qs.filter(pemilik_grup__in=user_groups).distinct()
 
-# --- DASHBOARD ---
+# --- DASHBOARD (UPDATED) ---
 @login_required
 def dashboard(request):
     user = request.user
-    group = user.groups.first()
     
     if user.is_superuser:
         tasks = Tugas.objects.all()
         projects = Proyek.objects.all()
     else:
-        tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
-        projects = Proyek.objects.filter(pemilik_grup=group)
+        # FIX: Filter berdasarkan list grup user
+        user_groups = user.groups.all()
+        
+        tasks = Tugas.objects.filter(
+            Q(pemilik_grup__in=user_groups) | 
+            Q(ditugaskan_ke=user)
+        ).distinct()
+        
+        projects = Proyek.objects.filter(pemilik_grup__in=user_groups).distinct()
     
     context = {
         'total_projects': projects.count(),
@@ -98,12 +113,18 @@ class ProyekCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     form_class = ProyekForm
     template_name = 'core/proyek_form.html'
     success_url = reverse_lazy('proyek-list')
-    def test_func(self): return is_admin(self.request.user) or is_leader(self.request.user)
+    
+    def test_func(self):
+        return is_admin(self.request.user) or is_leader(self.request.user)
+
     def form_valid(self, form):
+        # Saat create, default ke grup pertama (karena field FK cuma bisa simpan 1 grup)
+        # Idealnya nanti ada dropdown pilih grup di form jika user punya banyak grup
         user_group = self.request.user.groups.first()
         if not user_group:
             form.add_error(None, "ERROR: User tidak punya grup.")
             return self.form_invalid(form)
+            
         form.instance.pemilik_grup = user_group
         form.instance.dibuat_oleh = self.request.user
         response = super().form_valid(form)
@@ -164,10 +185,13 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
         kwargs['user'] = self.request.user
         return kwargs
     def form_valid(self, form):
+        # Saat create tugas, default ke grup utama user
+        # Jika user ada di 3 grup, tugas baru akan masuk ke grup "pertama" defaultnya
         user_group = self.request.user.groups.first()
         if not user_group:
             form.add_error(None, "ERROR: User tidak punya grup.")
             return self.form_invalid(form)
+            
         form.instance.pemilik_grup = user_group
         response = super().form_valid(form)
         log_activity(self.request.user, 'CREATE', 'Tugas', self.object.kode_tugas, f"Created: {self.object.nama_tugas}")
@@ -279,27 +303,28 @@ def update_task_date_api(request, pk):
         except Exception as e: return JsonResponse({'error': str(e)}, status=400)
     return JsonResponse({'error': 'Invalid method'}, status=405)
 
-# --- VISUALIZATION VIEWS (GANTT) ---
+# --- VISUALIZATION VIEWS (GANTT - UPDATED) ---
 
 @login_required
 def gantt_data(request):
     user = request.user
-    group = user.groups.first()
     
-    # 1. Fetch Data Awal
     if user.is_superuser:
         all_tasks = Tugas.objects.all()
         all_projects = Proyek.objects.all()
     else:
-        all_tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
-        all_projects = Proyek.objects.filter(pemilik_grup=group)
+        # FIX: Filter Multi-Group
+        user_groups = user.groups.all()
+        all_tasks = Tugas.objects.filter(
+            Q(pemilik_grup__in=user_groups) | 
+            Q(ditugaskan_ke=user)
+        ).distinct()
+        all_projects = Proyek.objects.filter(pemilik_grup__in=user_groups).distinct()
 
     gantt_list = []
 
-    # 2. PROYEK & TUGASNYA (Agar berurutan)
-    # Sort Proyek dulu
+    # 2. PROYEK & TUGASNYA
     for p in all_projects.order_by('kode_proyek'):
-        # Add Bar Proyek
         gantt_list.append({
             'id': f"PROJ-{p.id}", 
             'name': f"📁 {p.nama_proyek}",
@@ -308,7 +333,6 @@ def gantt_data(request):
             'progress': 0, 'dependencies': "", 'custom_class': 'bar-project'
         })
         
-        # Add Tugas dalam Proyek ini (Urut Kode)
         p_tasks = all_tasks.filter(proyek=p).order_by('kode_tugas')
         for t in p_tasks:
             dep = str(t.tergantung_pada.id) if t.tergantung_pada else ""
@@ -321,14 +345,12 @@ def gantt_data(request):
                 'dependencies': dep
             })
 
-    # 3. TUGAS LEPASAN (BAU / ADHOC / Tanpa Proyek)
+    # 3. TUGAS LEPASAN (BAU / ADHOC)
     orphans = all_tasks.filter(proyek__isnull=True)
-    
-    # Pisahkan BAU dan Adhoc
     bau_tasks = orphans.filter(tipe_tugas='BAU')
     adhoc_tasks = orphans.exclude(tipe_tugas='BAU').order_by('kode_tugas')
     
-    # A. Render Adhoc (Normal)
+    # Render Adhoc
     for t in adhoc_tasks:
         dep = str(t.tergantung_pada.id) if t.tergantung_pada else ""
         gantt_list.append({
@@ -337,23 +359,14 @@ def gantt_data(request):
             'progress': t.progress, 'dependencies': dep
         })
 
-    # B. Render BAU (GROUPING / AGGREGATION)
-    # Tujuannya: Menggabungkan 30 tugas "Harian" menjadi 1 bar "Summary"
-    bau_groups = {} # Key: template_id_string, Value: {data}
-
+    # Render BAU (Grouped)
+    bau_groups = {} 
     for t in bau_tasks:
-        # Coba deteksi Template ID dari kode tugas (format: BAU-{id}-{date})
         parts = t.kode_tugas.split('-')
-        
-        # Validasi format kode BAU
         if len(parts) >= 3 and parts[0] == 'BAU':
-            tmpl_id = parts[1] # ID Template
-            
+            tmpl_id = parts[1]
             if tmpl_id not in bau_groups:
-                # Bersihkan nama (hapus tanggal di belakang kurung)
-                # Contoh: "Laporan Harian (01 Dec)" -> "Laporan Harian"
                 clean_name = t.nama_tugas.split('(')[0].strip()
-                
                 bau_groups[tmpl_id] = {
                     'name': f"🔄 {clean_name} (Rutin)",
                     'start': t.tanggal_mulai,
@@ -362,16 +375,12 @@ def gantt_data(request):
                     'count': 1
                 }
             else:
-                # Update Range Tanggal (Min Start, Max End)
                 g = bau_groups[tmpl_id]
                 if t.tanggal_mulai < g['start']: g['start'] = t.tanggal_mulai
                 if t.tenggat_waktu > g['end']: g['end'] = t.tenggat_waktu
-                
-                # Akumulasi Progress untuk rata-rata
                 g['progress_acc'] += t.progress
                 g['count'] += 1
         else:
-            # Jika format kode beda (manual), render biasa
             gantt_list.append({
                 'id': str(t.id), 'name': t.nama_tugas,
                 'start': t.tanggal_mulai.strftime('%Y-%m-%d'), 
@@ -379,17 +388,16 @@ def gantt_data(request):
                 'progress': t.progress, 'dependencies': ""
             })
 
-    # Render Grouped BAU Rows
     for tmpl_id, grp in bau_groups.items():
         avg_progress = grp['progress_acc'] / grp['count'] if grp['count'] else 0
         gantt_list.append({
-            'id': f"BAU_GRP_{tmpl_id}", # Virtual ID
+            'id': f"BAU_GRP_{tmpl_id}",
             'name': grp['name'],
             'start': grp['start'].strftime('%Y-%m-%d'),
             'end': grp['end'].strftime('%Y-%m-%d'),
             'progress': round(avg_progress, 0),
             'dependencies': "",
-            'custom_class': 'bar-project' # Pakai style project (warna ungu) agar terlihat induk
+            'custom_class': 'bar-project'
         })
 
     return JsonResponse(gantt_list, safe=False)
@@ -398,36 +406,40 @@ def gantt_data(request):
 def gantt_view(request):
     return render(request, 'core/gantt.html')
 
-# --- EXPORT EXCEL (SORTED) ---
+# --- EXPORT EXCEL (SORTED & UPDATED) ---
 @login_required
 def export_gantt_excel(request):
     user = request.user
-    group = user.groups.first()
     
     if user.is_superuser:
         tasks = Tugas.objects.all()
         projects = Proyek.objects.all()
     else:
-        tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
-        projects = Proyek.objects.filter(pemilik_grup=group)
+        # FIX: Filter Multi-Group
+        user_groups = user.groups.all()
+        tasks = Tugas.objects.filter(
+            Q(pemilik_grup__in=user_groups) | 
+            Q(ditugaskan_ke=user)
+        ).distinct()
+        projects = Proyek.objects.filter(pemilik_grup__in=user_groups).distinct()
     
-    # Siapkan List urut untuk Excel (Sama dengan logika Gantt)
     sorted_rows = []
     
-    # 1. Proyek & Isinya
+    # 1. Proyek
     for p in projects.order_by('kode_proyek'):
-        # Add Header Proyek (Optional, atau skip)
-        # Disini kita masukkan tugas-tugasnya saja biar rapi tabelnya
         p_tasks = tasks.filter(proyek=p).order_by('kode_tugas')
         for t in p_tasks:
             sorted_rows.append(t)
             
-    # 2. Tugas Lepasan
+    # 2. Lepasan
     orphans = tasks.filter(proyek__isnull=True).order_by('tipe_tugas', 'kode_tugas')
     for t in orphans:
         sorted_rows.append(t)
 
-    # Hitung Range Global
+    # ... (SISA KODE EXCEL SAMA SEPERTI SEBELUMNYA) ...
+    # Agar hemat baris, saya asumsikan bagian bawah ini sama persis
+    # dengan file yang lama karena hanya logik filter yang berubah.
+    
     if sorted_rows:
         dates = [t.tanggal_mulai for t in sorted_rows] + [t.tenggat_waktu for t in sorted_rows]
         global_start = min(dates) if dates else date.today()
@@ -519,7 +531,7 @@ def export_gantt_excel(request):
     wb.save(response)
     return response
 
-# --- BAU & CALENDAR (SAMA SEPERTI SEBELUMNYA) ---
+# --- BAU & CALENDAR (SAMA) ---
 class TemplateBAUListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     model = TemplateBAU
     template_name = 'core/bau_list.html'
@@ -607,9 +619,17 @@ def calendar_view(request): return render(request, 'core/calendar.html')
 @login_required
 def calendar_data(request):
     user = request.user
-    group = user.groups.first()
-    if user.is_superuser: tasks = Tugas.objects.all()
-    else: tasks = Tugas.objects.filter(Q(pemilik_grup=group) | Q(ditugaskan_ke=user)).distinct()
+    
+    # FIX: Calendar Multi-Group
+    if user.is_superuser: 
+        tasks = Tugas.objects.all()
+    else: 
+        user_groups = user.groups.all()
+        tasks = Tugas.objects.filter(
+            Q(pemilik_grup__in=user_groups) | 
+            Q(ditugaskan_ke=user)
+        ).distinct()
+        
     events = []
     for t in tasks:
         color = '#3788d8'
