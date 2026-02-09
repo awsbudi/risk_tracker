@@ -1,0 +1,34 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<h2>Dashboard Proyek & Tugas Risk Management</h2>
+<div class="row mt-4">
+    <div class="col-md-3"><div class="card p-3 bg-primary text-white"><h3>{{ total_projects }}</h3> <small>Total Proyek</small></div></div>
+    <div class="col-md-3"><div class="card p-3 bg-success text-white"><h3>{{ total_tasks }}</h3> <small>Total Tugas</small></div></div>
+    <div class="col-md-3"><div class="card p-3 bg-danger text-white"><h3>{{ overdue_tasks }}</h3> <small>Terlambat</small></div></div>
+    <div class="col-md-3"><div class="card p-3 bg-warning text-white"><h3>{{ in_progress }}</h3> <small>Sedang Berjalan</small></div></div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card p-3">
+            <h5>Status Tugas</h5>
+            <canvas id="statusChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    const ctx = document.getElementById('statusChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Todo', 'In Progress', 'Done', 'Overdue'],
+            datasets: [{
+                data: [{{ todo_count }}, {{ in_progress }}, {{ done_count }}, {{ overdue_tasks }}],
+                backgroundColor: ['#6c757d', '#ffc107', '#198754', '#dc3545']
+            }]
+        }
+    });
+</script>
+
+{% endblock %}

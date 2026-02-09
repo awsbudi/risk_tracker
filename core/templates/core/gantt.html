@@ -1,0 +1,241 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<!-- CSS PATCH KHUSUS HALAMAN INI -->
+<style>
+    /* CRITICAL FIX: Memaksa parent flex container agar mau mengecil */
+    .content {
+        min-width: 0 !important;
+        overflow-x: hidden; 
+    }
+    .row {
+        margin-right: 0;
+        margin-left: 0;
+    }
+</style>
+
+<div class="row">
+    <div class="col-12 px-0"> 
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="mb-0">Gantt Chart</h2>
+        </div>
+
+        <div class="alert alert-info py-2 mb-3 shadow-sm mx-1">
+            <div class="d-flex align-items-center">
+                <span class="me-2">💡</span>
+                <small><strong>Tip:</strong> Gunakan scroll di dalam kotak grafik untuk melihat timeline.</small>
+            </div>
+        </div>
+
+        <!-- 1. CONTAINER CHART -->
+        <div class="card shadow-sm mb-3 mx-1" style="overflow: hidden;"> 
+            <div class="card-body p-2">
+                <div id="chart-scroll-container" class="gantt-scroll-container">
+                    <svg id="gantt"></svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. CONTROL PANEL (BERSIH) -->
+        <div class="card bg-light border-0 shadow-sm mx-1">
+            <div class="card-body py-3">
+                
+                <div class="d-flex flex-column gap-3 align-items-start">
+                    
+                    <!-- View Mode -->
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="fw-bold text-secondary mb-0" style="min-width: 80px;">👁️ View:</label>
+                        <select class="form-select form-select-sm shadow-sm" style="width: 180px;" id="viewModeSelect" onchange="changeViewMode(this.value)">
+                            <option value="Day">Harian (Day)</option>
+                            <option value="Week" selected>Mingguan (Week)</option>
+                            <option value="Month">Bulanan (Month)</option>
+                            <option value="Half Day">Per 12 Jam</option>
+                            <option value="Quarter Day">Per 6 Jam</option>
+                        </select>
+                    </div>
+
+                    <!-- Actions (Hanya Download) -->
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <label class="fw-bold text-secondary mb-0" style="min-width: 80px;">Actions:</label>
+                        
+                        <button id="btnDownload" class="btn btn-success btn-sm d-flex align-items-center gap-1 shadow-sm" onclick="downloadExcel()">
+                            <span>📥</span> Excel
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Styling Container agar pas di layar */
+    .gantt-scroll-container {
+        width: 100%;             
+        max-width: calc(100vw - 40px); 
+        overflow-x: auto;        
+        overflow-y: hidden;      
+        white-space: nowrap;     
+        background-color: #fff;
+        border-radius: 4px;
+        scrollbar-width: thin;
+        scrollbar-color: #888 #f1f1f1;
+        min-height: 350px;
+    }
+    
+    @media (min-width: 768px) {
+        .gantt-scroll-container {
+            max-width: 100%; 
+        }
+    }
+
+    .gantt-scroll-container::-webkit-scrollbar { height: 8px; }
+    .gantt-scroll-container::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+    .gantt-scroll-container::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+    .gantt-scroll-container::-webkit-scrollbar-thumb:hover { background: #555; }
+
+    .bar-project .bar { fill: #6f42c1 !important; }
+    .bar-project .bar-progress { fill: #563d7c !important; }
+    .bar-wrapper { cursor: grab; }
+    .bar-wrapper:active { cursor: grabbing; }
+
+    .gantt .grid-header .tick text {
+        font-size: 11px;
+        fill: #666;
+        font-weight: 600;
+    }
+    
+    .today-highlight {
+        fill: #fff9c4 !important; 
+        opacity: 0.5;
+    }
+</style>
+
+<script>
+    var ganttChart = null;
+    var tasksData = [];
+
+    // Fungsi Scroll Otomatis (Masih dipakai saat Load / Ganti View)
+    function scrollToToday() {
+        const container = document.getElementById('chart-scroll-container');
+        if (!container) return;
+        setTimeout(() => {
+            const todayHighlight = container.querySelector('.today-highlight');
+            if (todayHighlight) {
+                const x = parseFloat(todayHighlight.getAttribute('x')) || 0;
+                // Geser agar posisi today ada di tengah layar
+                const centerOffset = container.clientWidth / 2;
+                container.scrollLeft = x - centerOffset; 
+            }
+        }, 300);
+    }
+
+    function changeViewMode(mode) {
+        if (ganttChart) {
+            ganttChart.change_view_mode(mode);
+            scrollToToday(); 
+        }
+    }
+
+    let isExporting = false;
+    function downloadExcel() {
+        if (isExporting) return;
+        isExporting = true;
+        const btn = document.getElementById('btnDownload');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = "⏳ ...";
+        window.location.href = "{% url 'gantt-export' %}";
+        setTimeout(() => {
+            isExporting = false;
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }, 5000);
+    }
+
+    function loadGantt() {
+        const container = document.getElementById('gantt');
+        container.innerHTML = "";
+        
+        fetch("/gantt/data/")
+            .then(response => {
+                if (!response.ok) throw new Error("Gagal mengambil data");
+                return response.json();
+            })
+            .then(data => {
+                tasksData = data;
+                if(data.length > 0) {
+                    ganttChart = new Gantt("#gantt", data, {
+                        header_height: 50,
+                        column_width: 25, 
+                        step: 24,
+                        view_modes: ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'],
+                        bar_height: 22, 
+                        bar_corner_radius: 3,
+                        arrow_curve: 5,
+                        padding: 15,
+                        view_mode: 'Week', 
+                        date_format: 'YYYY-MM-DD',
+                        popup_trigger: 'click mouseover',
+                        
+                        on_date_change: function(task, start, end) {
+                            if (task.id.startsWith('PROJ')) {
+                                alert("Tanggal Proyek hanya bisa diubah lewat menu Edit Proyek.");
+                                window.location.reload(); 
+                                return; 
+                            }
+                            const formatDate = (d) => {
+                                let month = '' + (d.getMonth() + 1),
+                                    day = '' + d.getDate(),
+                                    year = d.getFullYear();
+                                if (month.length < 2) month = '0' + month;
+                                if (day.length < 2) day = '0' + day;
+                                return [year, month, day].join('-');
+                            };
+
+                            fetch(`/tugas/${task.id}/update-date/`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': '{{ csrf_token }}'
+                                },
+                                body: JSON.stringify({ start: formatDate(start), end: formatDate(end) })
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    window.location.reload(); 
+                                } else {
+                                    alert("Gagal update: " + data.error);
+                                }
+                            });
+                        },
+                        
+                        custom_popup_html: function(task) {
+                            return `
+                            <div class="details-container" style="padding:10px; background:white; border:1px solid #ccc; width: 200px; z-index:1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius:4px;">
+                              <h6 style="margin:0; font-weight:bold;">${task.name}</h6>
+                              <hr style="margin:5px 0;">
+                              <div style="font-size:0.85rem;">
+                                  Start: ${task.start}<br/>
+                                  End: ${task.end}<br/>
+                                  Progress: <strong>${task.progress}%</strong>
+                              </div>
+                            </div>
+                            `;
+                        }
+                    });
+                    scrollToToday();
+                } else {
+                    document.getElementById('chart-scroll-container').innerHTML = "<div class='text-center p-5 text-muted'>Belum ada data tugas.</div>";
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('chart-scroll-container').innerHTML = "<p class='text-danger p-3'>Gagal memuat data.</p>";
+            });
+    }
+
+    loadGantt();
+</script>
+{% endblock %}

@@ -1,0 +1,145 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<h2>Form Tugas</h2>
+
+{% if form.non_field_errors %}
+<div class="alert alert-danger">
+    {% for error in form.non_field_errors %}
+        {{ error }}
+    {% endfor %}
+</div>
+{% endif %}
+
+<form method="post" class="card p-4">
+    {% csrf_token %}
+    
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Nama Tugas</label>
+            {{ form.nama_tugas }}
+        </div>
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Tipe Tugas</label>
+            {{ form.tipe_tugas }}
+        </div>
+    </div>
+
+    <!-- Container Proyek (Akan di-hide via JS) -->
+    <div class="mb-3" id="proyek-container">
+        <label class="form-label">Proyek (Wajib untuk Tipe Proyek)</label>
+        {{ form.proyek }}
+        {% if form.proyek.errors %}
+            <div class="text-danger small">{{ form.proyek.errors }}</div>
+        {% endif %}
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Induk (Opsional)</label>
+            {{ form.induk }}
+        </div>
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Tergantung Pada (Opsional)</label>
+            {{ form.tergantung_pada }}
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Tanggal Mulai</label>
+            {{ form.tanggal_mulai }}
+            {% if form.tanggal_mulai.errors %}
+                <div class="text-danger small">{{ form.tanggal_mulai.errors }}</div>
+            {% endif %}
+        </div>
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Tenggat Waktu</label>
+            {{ form.tenggat_waktu }}
+            {% if form.tenggat_waktu.errors %}
+                <div class="text-danger small">{{ form.tenggat_waktu.errors }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Ditugaskan Ke</label>
+            {{ form.ditugaskan_ke }}
+        </div>
+        <div class="col-md-3 mb-3">
+            <label class="form-label">Progress (%)</label>
+            {{ form.progress }}
+        </div>
+        <div class="col-md-3 mb-3">
+            <label class="form-label">Status</label>
+            {{ form.status }}
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-success">Simpan</button>
+    <a href="javascript:history.back()" class="btn btn-secondary">Batal</a>
+</form>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const tipeSelect = document.getElementById('id_tipe_tugas');
+        const proyekContainer = document.getElementById('proyek-container');
+        const proyekSelect = document.getElementById('id_proyek');
+        const dependSelect = document.getElementById('id_tergantung_pada');
+        const startDateInput = document.getElementById('id_tanggal_mulai');
+
+        if (!tipeSelect || !proyekContainer) return;
+
+        // Toggle Proyek Field
+        function toggleProyek() {
+            if (tipeSelect.value === 'PROJECT') {
+                proyekContainer.style.display = 'block';
+            } else {
+                proyekContainer.style.display = 'none';
+                if (proyekSelect) proyekSelect.value = ''; 
+            }
+        }
+
+        // --- AUTO-FILL LOGIC VIA API ---
+        async function autoFillDate(type, id) {
+            if (!id) return;
+            try {
+                const response = await fetch(`/api/get-entity-dates/?type=${type}&id=${id}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error(data.error);
+                    return;
+                }
+
+                // Logika Pengisian
+                if (type === 'project') {
+                    // Jika pilih proyek -> Tgl Mulai = Tgl Mulai Proyek
+                    if (data.start_date) startDateInput.value = data.start_date;
+                } else if (type === 'task') {
+                    // Jika pilih dependency -> Tgl Mulai = Tgl Selesai Dependency
+                    if (data.end_date) startDateInput.value = data.end_date;
+                }
+            } catch (err) {
+                console.error("Gagal fetch data tanggal", err);
+            }
+        }
+
+        // Event Listeners
+        if (proyekSelect) {
+            proyekSelect.addEventListener('change', function() {
+                autoFillDate('project', this.value);
+            });
+        }
+
+        if (dependSelect) {
+            dependSelect.addEventListener('change', function() {
+                autoFillDate('task', this.value);
+            });
+        }
+
+        toggleProyek();
+        tipeSelect.addEventListener('change', toggleProyek);
+    });
+</script>
+{% endblock %}
