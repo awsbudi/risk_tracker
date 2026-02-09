@@ -2,43 +2,41 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # --- DASHBOARD ---
     path('', views.dashboard, name='dashboard'),
-    
-    # Proyek
-    path('proyek/', views.ProyekListView.as_view(), name='proyek-list'),
-    path('proyek/baru/', views.ProyekCreateView.as_view(), name='proyek-create'),
-    path('proyek/<int:pk>/', views.ProyekDetailView.as_view(), name='proyek-detail'),
-    path('proyek/<int:pk>/edit/', views.ProyekUpdateView.as_view(), name='proyek-update'),
-    path('proyek/<int:pk>/hapus/', views.ProyekDeleteView.as_view(), name='proyek-delete'),
-    
-    # Tugas
-    path('tugas/', views.TugasListView.as_view(), name='tugas-list'),
-    path('tugas/baru/', views.TugasCreateView.as_view(), name='tugas-create'),
-    path('tugas/<int:pk>/edit/', views.TugasUpdateView.as_view(), name='tugas-update'),
-    path('tugas/<int:pk>/hapus/', views.TugasDeleteView.as_view(), name='tugas-delete'),
-    
-    # API Updates (AJAX)
-    path('tugas/<int:pk>/update-progress/', views.update_progress_api, name='tugas-update-progress'),
-    path('tugas/<int:pk>/update-date/', views.update_task_date_api, name='tugas-update-date'),
-    
-    # NEW: API Helper untuk Form Auto-fill
-    path('api/get-entity-dates/', views.get_entity_dates_api, name='api-get-dates'),
 
-    # Gantt & Export
-    path('gantt/', views.gantt_view, name='gantt-view'),
-    path('gantt/data/', views.gantt_data, name='gantt-data'),
+    # --- PROYEK ---
+    path('proyek/', views.ProyekListView.as_view(), name='proyek-list'),
+    path('proyek/create/', views.ProyekCreateView.as_view(), name='proyek-create'),
+    path('proyek/<int:pk>/', views.ProyekDetailView.as_view(), name='proyek-detail'),
+    path('proyek/<int:pk>/update/', views.ProyekUpdateView.as_view(), name='proyek-update'),
+    path('proyek/<int:pk>/delete/', views.ProyekDeleteView.as_view(), name='proyek-delete'),
+
+    # --- TUGAS ---
+    path('tugas/', views.TugasListView.as_view(), name='tugas-list'),
+    path('tugas/create/', views.TugasCreateView.as_view(), name='tugas-create'),
+    path('tugas/<int:pk>/update/', views.TugasUpdateView.as_view(), name='tugas-update'),
+    path('tugas/<int:pk>/delete/', views.TugasDeleteView.as_view(), name='tugas-delete'),
+
+    # --- GANTT CHART (UPDATE DISINI) ---
+    # Ubah name='gantt' menjadi name='gantt-view' agar sesuai dengan sidebar
+    path('gantt/', views.gantt_view, name='gantt-view'),          
+    path('gantt-data/', views.gantt_data, name='gantt-data'),
     path('gantt/export/', views.export_gantt_excel, name='gantt-export'),
 
-    # Kalender
-    path('calendar/', views.calendar_view, name='calendar-view'),
-    path('calendar/data/', views.calendar_data, name='calendar-data'),
-    
-    # BAU Templates (UPDATED)
+    # --- BAU ---
     path('bau/', views.TemplateBAUListView.as_view(), name='bau-list'),
-    path('bau/baru/', views.TemplateBAUCreateView.as_view(), name='bau-create'),
-    
-    # NEW ROUTES: Edit, Delete, Generate Single
-    path('bau/<int:pk>/edit/', views.TemplateBAUUpdateView.as_view(), name='bau-update'), 
-    path('bau/<int:pk>/hapus/', views.TemplateBAUDeleteView.as_view(), name='bau-delete'), 
-    path('bau/generate/<int:pk>/', views.trigger_bau_single, name='bau-generate-single'), 
+    path('bau/create/', views.TemplateBAUCreateView.as_view(), name='bau-create'),
+    path('bau/<int:pk>/update/', views.TemplateBAUUpdateView.as_view(), name='bau-update'),
+    path('bau/<int:pk>/delete/', views.TemplateBAUDeleteView.as_view(), name='bau-delete'),
+    path('bau/<int:pk>/trigger/', views.trigger_bau_single, name='trigger-bau'),
+
+    # --- CALENDAR ---
+    path('calendar/', views.calendar_view, name='calendar-view'),
+    path('calendar-data/', views.calendar_data, name='calendar-data'),
+
+    # --- API ---
+    path('api/task/<int:pk>/update-progress/', views.update_progress_api, name='api-update-progress'),
+    path('api/task/<int:pk>/update-date/', views.update_task_date_api, name='api-update-date'),
+    path('api/get-dates/', views.get_entity_dates_api, name='api-get-dates'),
 ]
