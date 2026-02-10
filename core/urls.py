@@ -15,11 +15,12 @@ urlpatterns = [
     # --- TUGAS ---
     path('tugas/', views.TugasListView.as_view(), name='tugas-list'),
     path('tugas/create/', views.TugasCreateView.as_view(), name='tugas-create'),
+    path('tugas/import/', views.import_tugas, name='tugas-import'),
+    path('tugas/import/template/', views.download_template_tugas, name='tugas-import-template'), # BARU
     path('tugas/<int:pk>/update/', views.TugasUpdateView.as_view(), name='tugas-update'),
     path('tugas/<int:pk>/delete/', views.TugasDeleteView.as_view(), name='tugas-delete'),
 
-    # --- GANTT CHART (UPDATE DISINI) ---
-    # Ubah name='gantt' menjadi name='gantt-view' agar sesuai dengan sidebar
+    # --- GANTT CHART ---
     path('gantt/', views.gantt_view, name='gantt-view'),          
     path('gantt-data/', views.gantt_data, name='gantt-data'),
     path('gantt/export/', views.export_gantt_excel, name='gantt-export'),

@@ -1,131 +1,93 @@
 {% extends 'core/base.html' %}
 {% block content %}
-<div class="d-flex justify-content-between mb-3">
-    <h2>Daftar Tugas Risk Management</h2>
-    <a href="{% url 'tugas-create' %}" class="btn btn-primary">+ Tambah Tugas Utama</a>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-list-check"></i> Daftar Tugas</h2>
+    <div class="d-flex gap-2">
+        <!-- Tombol Import Baru -->
+        {% if user.is_superuser or user.profile.role == 'ADMIN' or user.profile.role == 'LEADER' %}
+            <a href="{% url 'tugas-import' %}" class="btn btn-success shadow-sm">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Import Excel
+            </a>
+            <a href="{% url 'tugas-create' %}" class="btn btn-primary shadow-sm">
+                <i class="bi bi-plus-lg"></i> Buat Tugas
+            </a>
+        {% endif %}
+    </div>
 </div>
 
-<div class="table-responsive">
-    <table class="table table-hover bg-white shadow-sm rounded align-middle">
-        <thead class="table-light">
-            <tr>
-                <th style="width: 120px;">Kode</th>
-                <th>Nama Tugas</th>
-                <th>Tipe</th>
-                <th>PIC</th>
-                <th>Deadline</th>
-                <th style="width: 150px;">Progress</th> 
-                <th>Status</th>
-                <th>Aksi</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for tugas in tugas_list %}
-            <tr>
-                <td><small class="text-muted">{{ tugas.kode_tugas }}</small></td>
+<!-- Filter Assignee -->
+<div class="card bg-light mb-4 border-0">
+    <div class="card-body py-2">
+        <form method="get" class="d-flex align-items-center gap-2">
+            <span class="fw-bold text-muted small"><i class="bi bi-funnel"></i> Filter:</span>
+            <select name="assignee" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+                <option value="">-- Semua PIC --</option>
+                {% for member in user.groups.first.user_set.all %}
+                    <option value="{{ member.id }}" {% if request.GET.assignee == member.id|stringformat:"s" %}selected{% endif %}>
+                        {{ member.first_name|default:member.username }}
+                    </option>
+                {% endfor %}
+            </select>
+            {% if request.GET.assignee %}
+                <a href="{% url 'tugas-list' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x"></i></a>
+            {% endif %}
+        </form>
+    </div>
+</div>
+
+<div class="row">
+    {% for task in tugas_list %}
+    <div class="col-md-6 mb-3">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h5 class="card-title text-primary mb-0">
+                        <a href="{% url 'tugas-update' task.pk %}" class="text-decoration-none">{{ task.nama_tugas }}</a>
+                    </h5>
+                    <span class="badge {% if task.status == 'DONE' %}bg-success{% elif task.status == 'OVERDUE' %}bg-danger{% elif task.status == 'ON_HOLD' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                        {{ task.get_status_display }}
+                    </span>
+                </div>
                 
-                <td style="padding-left: {% if tugas.induk %}40px{% else %}10px{% endif %}">
-                    {% if tugas.induk %}↳{% endif %} 
-                    <a href="{% url 'tugas-update' tugas.pk %}" class="text-decoration-none text-dark fw-bold">
-                        {{ tugas.nama_tugas }}
-                    </a>
-                </td>
-                
-                <td><span class="badge bg-info text-dark">{{ tugas.get_tipe_tugas_display }}</span></td>
-                <td><small>{{ tugas.ditugaskan_ke.username|default:"-" }}</small></td>
-                
-                <td>
-                    <small {% if tugas.status == 'OVERDUE' %}class="text-danger fw-bold"{% endif %}>
-                        {{ tugas.tenggat_waktu|date:"d M Y" }}
-                    </small>
-                </td>
-                
-                <td>
-                    {% if request.user == tugas.ditugaskan_ke or request.user.is_superuser or request.user.profile.role == 'ADMIN' or request.user.profile.role == 'LEADER' %}
-                        <input type="range" class="form-range progress-slider" 
-                               data-id="{{ tugas.id }}" 
-                               min="0" max="100" step="10" 
-                               value="{{ tugas.progress }}"
-                               title="Geser untuk update progress">
-                        <div class="d-flex justify-content-between">
-                            <small class="progress-val-{{ tugas.id }}">{{ tugas.progress }}%</small>
-                        </div>
-                    {% else %}
-                        <div class="progress" style="height: 15px;">
-                            <div class="progress-bar" style="width: {{ tugas.progress }}%">{{ tugas.progress }}%</div>
-                        </div>
+                <div class="small text-muted mb-2">
+                    <span class="me-2"><i class="bi bi-qr-code"></i> {{ task.kode_tugas }}</span>
+                    {% if task.proyek %}
+                        <span class="me-2"><i class="bi bi-folder"></i> {{ task.proyek.nama_proyek|truncatechars:20 }}</span>
                     {% endif %}
-                </td>
+                </div>
 
-                <td id="status-text-{{ tugas.id }}">
-                    {% if tugas.status == 'DONE' %}<span class="badge bg-success">Selesai</span>
-                    {% elif tugas.status == 'OVERDUE' %}<span class="badge bg-danger">Telat</span>
-                    {% elif tugas.status == 'IN_PROGRESS' %}<span class="badge bg-warning text-dark">Proses</span>
-                    {% else %}<span class="badge bg-secondary">{{ tugas.get_status_display }}</span>{% endif %}
-                </td>
-                
-                <td>
-                    <div class="btn-group">
-                        <a href="{% url 'tugas-create' %}?parent_id={{ tugas.id }}" 
-                           class="btn btn-sm btn-outline-primary" 
-                           title="Tambah Subtask di bawah ini">
-                           +
-                        </a>
-
-                        {% if request.user.is_superuser or request.user.profile.role == 'ADMIN' or request.user.profile.role == 'LEADER' %}
-                             <a href="{% url 'tugas-update' tugas.pk %}" class="btn btn-sm btn-outline-warning">✎</a>
-                             {% if request.user.is_superuser or request.user.profile.role == 'ADMIN' %}
-                                <a href="{% url 'tugas-delete' tugas.pk %}" class="btn btn-sm btn-outline-danger">🗑</a>
-                             {% endif %}
-                        {% elif request.user.profile.role == 'MEMBER' and tugas.ditugaskan_ke == request.user %}
-                             <a href="{% url 'tugas-update' tugas.pk %}" class="btn btn-sm btn-outline-warning">✎</a>
-                        {% endif %}
+                <div class="d-flex justify-content-between small text-muted mb-3">
+                    <div>
+                        <i class="bi bi-person-circle"></i> PIC: 
+                        <span class="fw-bold">{{ task.ditugaskan_ke.first_name|default:task.ditugaskan_ke.username|default:"-" }}</span>
                     </div>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                    <div>
+                        <i class="bi bi-megaphone"></i> Dari: {{ task.pemberi_tugas|default:"-" }}
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-center">
+                    <div class="progress flex-grow-1 me-2" style="height: 10px;">
+                        <div class="progress-bar {% if task.progress == 100 %}bg-success{% else %}bg-info{% endif %}" 
+                             role="progressbar" style="width: {{ task.progress }}%"></div>
+                    </div>
+                    <small class="fw-bold">{{ task.progress }}%</small>
+                </div>
+                
+                <div class="mt-2 small d-flex justify-content-between text-muted">
+                     <span><i class="bi bi-calendar"></i> {{ task.tanggal_mulai|date:"d M" }} - {{ task.tenggat_waktu|date:"d M" }}</span>
+                     {% if task.status != 'DONE' and user.is_superuser %}
+                        <a href="{% url 'tugas-delete' task.pk %}" class="text-danger text-decoration-none"><i class="bi bi-trash"></i> Hapus</a>
+                     {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12 text-center py-5">
+        <img src="https://cdn-icons-png.flaticon.com/512/7486/7486744.png" alt="Empty" width="80" class="mb-3 opacity-50">
+        <p class="text-muted">Belum ada tugas. Silakan buat atau import dari Excel.</p>
+    </div>
+    {% endfor %}
 </div>
-
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const sliders = document.querySelectorAll('.progress-slider');
-
-        sliders.forEach(slider => {
-            slider.addEventListener('change', function() {
-                const taskId = this.getAttribute('data-id');
-                const newVal = this.value;
-                document.querySelector(`.progress-val-${taskId}`).textContent = newVal + "%";
-
-                fetch(`/tugas/${taskId}/update-progress/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    },
-                    body: JSON.stringify({ progress: newVal })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        const statusCell = document.getElementById(`status-text-${taskId}`);
-                        let badgeClass = 'bg-secondary';
-                        if (data.new_status === 'Selesai') badgeClass = 'bg-success';
-                        else if (data.new_status === 'Sedang Dikerjakan') badgeClass = 'bg-warning text-dark';
-                        statusCell.innerHTML = `<span class="badge ${badgeClass}">${data.new_status}</span>`;
-                    } else {
-                        alert('Gagal update: ' + data.error);
-                    }
-                })
-                .catch(error => console.error('Error:', error));
-            });
-
-            slider.addEventListener('input', function() {
-                const taskId = this.getAttribute('data-id');
-                document.querySelector(`.progress-val-${taskId}`).textContent = this.value + "%";
-            });
-        });
-    });
-</script>
 {% endblock %}

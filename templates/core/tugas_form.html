@@ -35,12 +35,18 @@
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label class="form-label">Proyek (Wajib jika tipe Proyek)</label>
-                    {{ form.proyek }} <!-- UAT: Dropdown Quick Search (akan diaktifkan via JS dibawah) -->
+                    {{ form.proyek }} 
                     {{ form.proyek.errors }}
                 </div>
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">Pemberi Tugas (Wajib jika Adhoc)</label>
+                    <label class="form-label">Pemberi Tugas</label>
                     {{ form.pemberi_tugas }}
+                    <datalist id="user-list">
+                        {% for user in form.fields.ditugaskan_ke.queryset %}
+                            <option value="{{ user.get_full_name|default:user.username }}">
+                        {% endfor %}
+                    </datalist>
+                    <div class="form-text">Ketik nama manual (Direktur/Klien) atau pilih dari list.</div>
                     {{ form.pemberi_tugas.errors }}
                 </div>
             </div>
@@ -57,9 +63,7 @@
             </div>
 
             <!-- SECTION 2: JADWAL (PLAN VS ACTUAL) -->
-            <!-- UAT: Memisahkan Plan & Actual -->
             <div class="row mt-4">
-                <!-- PLAN (Kiri) -->
                 <div class="col-md-6">
                     <div class="card h-100 bg-light border-0">
                         <div class="card-header bg-transparent border-0 pb-0">
@@ -72,7 +76,7 @@
                                 {{ form.tanggal_mulai.errors }}
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Tenggat Waktu / Deadline (Plan)</label>
+                                <label class="form-label">Tenggat Waktu (Plan)</label>
                                 {{ form.tenggat_waktu }}
                                 {{ form.tenggat_waktu.errors }}
                             </div>
@@ -80,7 +84,6 @@
                     </div>
                 </div>
 
-                <!-- ACTUAL (Kanan) -->
                 <div class="col-md-6 mt-3 mt-md-0">
                     <div class="card h-100" style="background-color: #f0fff4;">
                         <div class="card-header bg-transparent border-0 pb-0">
@@ -107,7 +110,7 @@
             <div class="row">
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold">Ditugaskan Ke (PIC)</label>
-                    {{ form.ditugaskan_ke }} <!-- UAT: Quick Search enabled via JS -->
+                    {{ form.ditugaskan_ke }}
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold">Progress (%)</label>
@@ -132,21 +135,17 @@
     </form>
 </div>
 
-<!-- Tambahkan Select2 CSS/JS untuk fitur Quick Search pada Dropdown (UAT Requirement) -->
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
     $(document).ready(function() {
-        // UAT: Quick Search untuk dropdown list
         $('#id_proyek').select2({ placeholder: "Pilih Proyek...", allowClear: true, width: '100%' });
         $('#id_induk').select2({ placeholder: "Pilih Induk Tugas...", allowClear: true, width: '100%' });
         $('#id_ditugaskan_ke').select2({ placeholder: "Pilih PIC...", width: '100%' });
-        $('#id_pemberi_tugas').select2({ placeholder: "Pilih Pemberi Tugas...", width: '100%' });
-        $('#id_tergantung_pada').select2({ placeholder: "Pilih Ketergantungan...", allowClear: true, width: '100%' });
+        // NOTE: id_pemberi_tugas sekarang INPUT TEXT biasa, jadi tidak pakai Select2 agar bisa free text.
 
-        // UAT UX: Auto copy Start Date Plan to Actual Start Date (jika kosong)
         $('#id_tanggal_mulai').change(function(){
             var planStart = $(this).val();
             var actStart = $('#id_tanggal_mulai_aktual').val();
@@ -155,25 +154,21 @@
             }
         });
 
-        // Validasi Tipe Tugas UI
         function toggleFields() {
             var tipe = $('#id_tipe_tugas').val();
             if(tipe === 'ADHOC') {
                 $('#id_proyek').prop('disabled', true).val(null).trigger('change');
-                $('#id_pemberi_tugas').prop('disabled', false);
             } else if (tipe === 'PROJECT') {
                 $('#id_proyek').prop('disabled', false);
-                // $('#id_pemberi_tugas').prop('disabled', true).val(null).trigger('change'); // Optional
             } else {
                 $('#id_proyek').prop('disabled', true);
             }
         }
         $('#id_tipe_tugas').change(toggleFields);
-        toggleFields(); // Run on load
+        toggleFields();
     });
 </script>
 
-<!-- Custom Style untuk memperbaiki tampilan Select2 di Bootstrap 5 -->
 <style>
     .select2-container .select2-selection--single {
         height: 38px !important;

@@ -1,78 +1,45 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.models import User, Group
-from .models import Proyek, Tugas, UserProfile, TemplateBAU, AuditLog
+from django.contrib.auth.models import User
+from django import forms
+from .models import Proyek, Tugas, UserProfile, AuditLog
 
-# 1. Definisikan Inline (Mempertahankan Fix Anda)
 class UserProfileInline(admin.StackedInline):
     model = UserProfile
     can_delete = False
-    verbose_name_plural = 'Risk Management Role'
-    fk_name = 'user'
-    
-    # Tambahan: Mencegah error duplicate saat inline ditampilkan
-    extra = 0 
+    verbose_name_plural = 'Role'
+    extra = 0
 
-# 2. Definisikan User Admin Baru (Gabungan Fitur)
+class CustomUserChangeForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = '__all__'
+    def clean_is_superuser(self):
+        is_superuser = self.cleaned_data.get('is_superuser')
+        # UAT: Prevent non-superuser from making superusers
+        # Note: logic moved to ModelAdmin for request access
+        return is_superuser
+
 class UserAdmin(BaseUserAdmin):
     inlines = (UserProfileInline,)
-    # Menambahkan 'get_groups' dan 'last_name' ke list display
-    list_display = ('username', 'email', 'first_name', 'last_name', 'get_groups', 'get_role', 'is_staff')
+    list_display = ('username', 'email', 'first_name', 'get_role', 'is_staff', 'is_superuser')
     
-    # Fungsi baru: Menampilkan Grup
-    def get_groups(self, obj):
-        return ", ".join([g.name for g in obj.groups.all()])
-    get_groups.short_description = 'Groups'
+    def get_role(self, obj): return obj.profile.role if hasattr(obj, 'profile') else '-'
+    get_role.short_description = 'Role'
 
-    # Fungsi Role
-    def get_role(self, obj):
-        if hasattr(obj, 'profile'):
-            return obj.profile.role
-        return '-'
-    get_role.short_description = 'Role Project'
+    def has_delete_permission(self, request, obj=None):
+        # UAT: Hanya Superuser yang boleh hapus user
+        return request.user.is_superuser
 
-    # --- PERBAIKAN PENTING (DIPERTAHANKAN) ---
-    def get_inline_instances(self, request, obj=None):
-        # Jika obj=None, berarti kita sedang di halaman "Add User"
-        if not obj:
-            # Sembunyikan Inline Profile agar tidak bentrok dengan Signal creation
-            return []
-        # Jika obj ada, berarti sedang Edit, tampilkan Inline
-        return super().get_inline_instances(request, obj)
+    def get_readonly_fields(self, request, obj=None):
+        # UAT: Admin biasa tidak boleh edit is_superuser
+        if not request.user.is_superuser:
+            return ('is_superuser', 'user_permissions', 'last_login', 'date_joined')
+        return ()
 
-# 3. Register ulang User
-try:
-    admin.site.unregister(User)
-except admin.sites.NotRegistered:
-    pass
+try: admin.site.unregister(User)
+except: pass
 admin.site.register(User, UserAdmin)
-
-
-# 4. Admin untuk Model Lain (Lebih Canggih dengan Filter & Search)
-
-@admin.register(Proyek)
-class ProyekAdmin(admin.ModelAdmin):
-    list_display = ('kode_proyek', 'nama_proyek', 'pemilik_grup', 'tanggal_mulai', 'tanggal_selesai')
-    list_filter = ('pemilik_grup',)
-    search_fields = ('nama_proyek', 'kode_proyek')
-
-@admin.register(Tugas)
-class TugasAdmin(admin.ModelAdmin):
-    list_display = ('kode_tugas', 'nama_tugas', 'tipe_tugas', 'proyek', 'status', 'progress', 'ditugaskan_ke')
-    list_filter = ('tipe_tugas', 'status', 'pemilik_grup', 'proyek')
-    search_fields = ('nama_tugas', 'kode_tugas')
-    autocomplete_fields = ['induk', 'tergantung_pada'] # Agar dropdown tidak berat
-
-@admin.register(TemplateBAU)
-class TemplateBAUAdmin(admin.ModelAdmin):
-    list_display = ('nama_tugas', 'frekuensi', 'pemilik_grup', 'default_pic')
-    list_filter = ('frekuensi', 'pemilik_grup')
-
-@admin.register(AuditLog)
-class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ('timestamp', 'user', 'action', 'target_model', 'target_id', 'details')
-    list_filter = ('action', 'target_model', 'user')
-    readonly_fields = ('timestamp', 'user', 'action', 'target_model', 'target_id', 'details') # Log read-only
-    
-    def has_add_permission(self, request):
-        return False
+admin.site.register(Proyek)
+admin.site.register(Tugas)
+admin.site.register(AuditLog)
