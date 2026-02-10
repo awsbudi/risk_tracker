@@ -16,7 +16,7 @@ from openpyxl.utils import get_column_letter
 from .models import Proyek, Tugas, TemplateBAU, AuditLog, User
 from .forms import ProyekForm, TugasForm, ImportTugasForm
 
-# --- HELPER ---
+# --- HELPER (Tetap) ---
 def log_activity(user, action, model_name, obj_id, details):
     AuditLog.objects.create(user=user, action=action, target_model=model_name, target_id=str(obj_id), details=details)
 
@@ -63,7 +63,7 @@ def dashboard(request):
     }
     return render(request, 'core/dashboard.html', context)
 
-# --- PROYEK VIEWS ---
+# --- PROYEK VIEWS (Tetap) ---
 class ProyekListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     model = Proyek
     template_name = 'core/proyek_list.html'
@@ -111,7 +111,7 @@ class ProyekDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         log_activity(request.user, 'DELETE', 'Proyek', obj.kode_proyek, f"Deleted: {obj.nama_proyek}")
         return super().delete(request, *args, **kwargs)
 
-# --- IMPORT & DOWNLOAD TEMPLATE (BARU) ---
+# --- IMPORT & DOWNLOAD TEMPLATE (UPDATED FIX) ---
 @login_required
 def download_template_tugas(request):
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -121,33 +121,26 @@ def download_template_tugas(request):
     ws = wb.active
     ws.title = "Template Tugas"
     
-    # Header
     headers = ['Nama Tugas', 'Tipe Tugas', 'Kode Proyek', 'Pemberi Tugas', 'Username PIC', 'Start Date', 'End Date', 'Deskripsi']
     ws.append(headers)
     
-    # Styling Header
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
     
-    # Sample Data (Contoh agar user paham)
+    # Contoh data valid (Senin-Jumat)
     sample_data = [
-        ['Laporan Keuangan Q1', 'ADHOC', '', 'Pak Direktur', request.user.username, '2025-01-10', '2025-01-12', 'Contoh Adhoc'],
-        ['Integrasi API', 'PROJECT', 'P-001', '', '', '2025-02-01', '2025-02-05', 'Contoh Project (Wajib Kode Proyek)'],
-        ['Cek Server Bulanan', 'BAU', '', 'Manager IT', '', '2025-03-01', '2025-03-01', 'Contoh BAU'],
+        ['Laporan Keuangan Q1', 'ADHOC', '', 'Pak Direktur', request.user.username, '2025-02-03', '2025-02-07', 'Contoh Adhoc'],
+        ['Integrasi API', 'PROJECT', 'P-001', '', '', '2025-02-10', '2025-02-14', 'Contoh Project'],
     ]
+    for row in sample_data: ws.append(row)
     
-    for row in sample_data:
-        ws.append(row)
-        
-    # Auto-adjust column width
     for column in ws.columns:
         max_length = 0
         column = [cell for cell in column]
         for cell in column:
             try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
+                if len(str(cell.value)) > max_length: max_length = len(str(cell.value))
             except: pass
         adjusted_width = (max_length + 2)
         ws.column_dimensions[get_column_letter(column[0].column)].width = adjusted_width
@@ -170,22 +163,35 @@ def import_tugas(request):
                 success_count = 0
                 errors = []
                 
-                # Asumsi Baris 1 Header, Data mulai baris 2
+                # Iterasi Baris
                 for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                     if not row[0]: continue 
                     
                     try:
-                        # Mapping Kolom Sesuai Template
+                        # 1. Parsing Data
                         nama_tugas = row[0]
-                        tipe_tugas = row[1].upper() if row[1] else 'ADHOC'
+                        tipe_tugas = row[1].upper().strip() if row[1] else 'ADHOC'
                         kode_proyek = row[2]
-                        # Pemberi Tugas: Jika kosong, pakai nama user pengupload
                         pemberi_tugas = row[3] or request.user.get_full_name() or request.user.username
                         pic_username = row[4]
-                        start_date = row[5]
-                        end_date = row[6]
                         
-                        # Validasi Tipe
+                        # 2. Parsing Tanggal (Robust)
+                        def parse_date(d):
+                            if isinstance(d, datetime): return d.date()
+                            if isinstance(d, date): return d
+                            if isinstance(d, str):
+                                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+                                    try: return datetime.strptime(d.strip(), fmt).date()
+                                    except: continue
+                            return None
+
+                        start_date = parse_date(row[5])
+                        end_date = parse_date(row[6])
+
+                        if not start_date or not end_date:
+                            raise ValueError("Format tanggal salah. Gunakan YYYY-MM-DD.")
+
+                        # 3. Validasi
                         if tipe_tugas not in ['PROJECT', 'ADHOC', 'BAU']:
                             raise ValueError(f"Tipe tugas '{tipe_tugas}' tidak valid.")
 
@@ -198,25 +204,17 @@ def import_tugas(request):
                         pic_user = None
                         if pic_username:
                             pic_user = User.objects.filter(username=pic_username).first()
-                        
-                        # Parsing Tanggal (Handle datetime object or string)
-                        if isinstance(start_date, datetime): start_date = start_date.date()
-                        if isinstance(end_date, datetime): end_date = end_date.date()
-                        
-                        # Jika string, coba parse (opsional, openpyxl biasanya sudah auto convert)
-                        if isinstance(start_date, str): 
-                            try: start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-                            except: pass # Biarkan error validasi database menangani
 
-                        # Validasi Tanggal
-                        if start_date and start_date.weekday() >= 5:
-                            raise ValueError("Tanggal Mulai tidak boleh Sabtu/Minggu.")
+                        # 4. Validasi Weekend (Penyebab data ke-2 Anda gagal)
+                        if start_date.weekday() >= 5: # 5=Sabtu, 6=Minggu
+                            raise ValueError(f"Tanggal Mulai {start_date} adalah hari libur (Sabtu/Minggu).")
 
+                        # 5. Create
                         Tugas.objects.create(
                             nama_tugas=nama_tugas,
                             tipe_tugas=tipe_tugas,
                             proyek=proyek_obj,
-                            pemberi_tugas=pemberi_tugas, # CharField Text Bebas
+                            pemberi_tugas=pemberi_tugas,
                             ditugaskan_ke=pic_user,
                             tanggal_mulai=start_date,
                             tenggat_waktu=end_date,
@@ -225,17 +223,26 @@ def import_tugas(request):
                             progress=0
                         )
                         success_count += 1
+                        
                     except Exception as e:
-                        errors.append(f"Baris {idx}: {str(e)}")
+                        errors.append(f"Baris {idx} ({row[0] if row[0] else 'Unknown'}): {str(e)}")
                 
+                # Feedback User
                 if success_count > 0:
-                    messages.success(request, f"Berhasil import {success_count} tugas.")
+                    messages.success(request, f"Sukses import {success_count} tugas.")
+                
                 if errors:
-                    messages.warning(request, f"Info Import: {len(errors)} data gagal.<br>" + "<br>".join(errors[:5]) + ("..." if len(errors)>5 else ""))
+                    # Tampilkan list error secara detail
+                    error_msg = f"<b>{len(errors)} data gagal diimport:</b><br><ul class='mb-0 text-start'>"
+                    for err in errors[:10]: # Max 10 error agar tidak spam
+                        error_msg += f"<li>{err}</li>"
+                    if len(errors) > 10: error_msg += "<li>... dan lainnya.</li>"
+                    error_msg += "</ul>"
+                    messages.warning(request, error_msg)
                 
                 return redirect('tugas-list')
             except Exception as e:
-                messages.error(request, f"File Excel tidak valid: {str(e)}")
+                messages.error(request, f"File Excel rusak/tidak valid: {str(e)}")
     else:
         form = ImportTugasForm()
 
@@ -260,7 +267,6 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
     
     def get_initial(self):
         initial = super().get_initial()
-        # Default Pemberi Tugas = User Login (sebagai string)
         initial['pemberi_tugas'] = self.request.user.get_full_name() or self.request.user.username
         parent_id = self.request.GET.get('parent_id')
         if parent_id:
@@ -328,7 +334,7 @@ class TugasDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         log_activity(request.user, 'DELETE', 'Tugas', obj.kode_tugas, f"Deleted: {obj.nama_tugas}")
         return super().delete(request, *args, **kwargs)
 
-# --- API HELPERS (Tetap Sama) ---
+# --- API HELPERS (Tetap) ---
 @login_required
 def get_entity_dates_api(request):
     type_ = request.GET.get('type')
@@ -389,7 +395,7 @@ def update_task_date_api(request, pk):
         except Exception as e: return JsonResponse({'error': str(e)}, status=400)
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 
-# --- GANTT & REPORT (Tetap Sama) ---
+# --- GANTT & REPORT (Tetap) ---
 @login_required
 def gantt_data(request):
     user = request.user
@@ -490,7 +496,7 @@ def export_gantt_excel(request):
     wb.save(response)
     return response
 
-# --- BAU VIEWS & Calendar (Tetap Sama) ---
+# --- BAU VIEWS & Calendar (Tetap) ---
 class TemplateBAUListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     model = TemplateBAU
     template_name = 'core/bau_list.html'

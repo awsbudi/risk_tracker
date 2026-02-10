@@ -13,10 +13,11 @@ class ProyekForm(forms.ModelForm):
         widgets = {
             'nama_proyek': forms.TextInput(attrs={'class': 'form-control'}),
             'deskripsi': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-            'tanggal_mulai': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-            'tanggal_selesai': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-            'tanggal_mulai_aktual': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-            'tanggal_selesai_aktual': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            # FIX: Tambahkan format='%Y-%m-%d' agar nilai muncul saat Edit
+            'tanggal_mulai': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
+            'tanggal_selesai': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
+            'tanggal_mulai_aktual': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
+            'tanggal_selesai_aktual': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
             'status': forms.Select(attrs={'class': 'form-select'}),
         }
         labels = {
@@ -40,17 +41,17 @@ class TugasForm(forms.ModelForm):
             'nama_tugas': forms.TextInput(attrs={'class': 'form-control'}),
             'tipe_tugas': forms.Select(attrs={'class': 'form-select'}),
             'proyek': forms.Select(attrs={'class': 'form-select'}),
-            
-            # UPDATE: Pemberi Tugas jadi Text Input dengan Datalist (untuk saran)
             'pemberi_tugas': forms.TextInput(attrs={'class': 'form-control', 'list': 'user-list', 'placeholder': 'Ketik nama atau pilih...'}),
-            
             'induk': forms.Select(attrs={'class': 'form-select'}),
             'tergantung_pada': forms.Select(attrs={'class': 'form-select'}),
             'ditugaskan_ke': forms.Select(attrs={'class': 'form-select'}),
-            'tanggal_mulai': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-            'tenggat_waktu': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-            'tanggal_mulai_aktual': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-            'tanggal_selesai_aktual': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            
+            # FIX: Tambahkan format='%Y-%m-%d' di sini
+            'tanggal_mulai': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
+            'tenggat_waktu': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
+            'tanggal_mulai_aktual': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
+            'tanggal_selesai_aktual': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
+            
             'progress': forms.NumberInput(attrs={'class': 'form-control', 'min': 0, 'max': 100}),
             'status': forms.Select(attrs={'class': 'form-select'}),
         }
@@ -61,9 +62,6 @@ class TugasForm(forms.ModelForm):
         active_users = User.objects.filter(is_active=True)
         self.fields['ditugaskan_ke'].queryset = active_users
         
-        # Note: pemberi_tugas sekarang TextField, jadi tidak perlu queryset. 
-        # Tapi kita tetap filter list user untuk keperluan lain jika perlu.
-
         user_groups = user.groups.all()
         
         if not user.is_superuser:
@@ -79,6 +77,5 @@ class TugasForm(forms.ModelForm):
                 team_users = User.objects.filter(groups__in=user_groups, is_active=True).distinct()
                 self.fields['ditugaskan_ke'].queryset = team_users
             
-            # Auto-fill nama user login di pemberi tugas jika kosong (sebagai string)
             if not self.instance.pk:
                 self.initial['pemberi_tugas'] = user.get_full_name() or user.username

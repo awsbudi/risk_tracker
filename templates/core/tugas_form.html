@@ -9,22 +9,37 @@
         <a href="{% url 'tugas-list' %}" class="btn btn-outline-secondary">Kembali</a>
     </div>
 
-    <form method="post" class="card shadow-sm border-0">
+    <!-- Error Message Display -->
+    {% if form.errors %}
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <strong>Gagal Menyimpan!</strong> Periksa isian berikut:
+        <ul class="mb-0 mt-2">
+        {% for field, errors in form.errors.items %}
+            {% for error in errors %}
+                <li>
+                    {% if field != '__all__' %}
+                        <strong>{{ field|title }}:</strong> 
+                    {% endif %}
+                    {{ error }}
+                </li>
+            {% endfor %}
+        {% endfor %}
+        </ul>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+
+    <form method="post" class="card shadow-sm border-0" id="taskForm">
         {% csrf_token %}
         <div class="card-body p-4">
             
-            {% if form.non_field_errors %}
-            <div class="alert alert-danger">{{ form.non_field_errors }}</div>
-            {% endif %}
-
             <!-- SECTION 1: INFO DASAR -->
             <h5 class="text-primary border-bottom pb-2 mb-3">Informasi Tugas</h5>
             
             <div class="row">
                 <div class="col-md-8 mb-3">
-                    <label class="form-label fw-bold">Nama Tugas</label>
+                    <label class="form-label fw-bold">Nama Tugas <span class="text-danger">*</span></label>
                     {{ form.nama_tugas }}
-                    {{ form.nama_tugas.errors }}
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold">Tipe Tugas</label>
@@ -36,10 +51,9 @@
                 <div class="col-md-6 mb-3">
                     <label class="form-label">Proyek (Wajib jika tipe Proyek)</label>
                     {{ form.proyek }} 
-                    {{ form.proyek.errors }}
                 </div>
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">Pemberi Tugas</label>
+                    <label class="form-label">Pemberi Tugas (Wajib jika Adhoc)</label>
                     {{ form.pemberi_tugas }}
                     <datalist id="user-list">
                         {% for user in form.fields.ditugaskan_ke.queryset %}
@@ -47,17 +61,16 @@
                         {% endfor %}
                     </datalist>
                     <div class="form-text">Ketik nama manual (Direktur/Klien) atau pilih dari list.</div>
-                    {{ form.pemberi_tugas.errors }}
                 </div>
             </div>
 
             <div class="row">
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">Induk Tugas (Opsional)</label>
+                    <label class="form-label">Induk Tugas</label>
                     {{ form.induk }}
                 </div>
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">Tergantung Pada (Opsional)</label>
+                    <label class="form-label">Tergantung Pada</label>
                     {{ form.tergantung_pada }}
                 </div>
             </div>
@@ -71,14 +84,12 @@
                         </div>
                         <div class="card-body">
                             <div class="mb-3">
-                                <label class="form-label">Tanggal Mulai (Plan)</label>
+                                <label class="form-label">Tanggal Mulai (Plan) <span class="text-danger">*</span></label>
                                 {{ form.tanggal_mulai }}
-                                {{ form.tanggal_mulai.errors }}
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Tenggat Waktu (Plan)</label>
+                                <label class="form-label">Tenggat Waktu (Plan) <span class="text-danger">*</span></label>
                                 {{ form.tenggat_waktu }}
-                                {{ form.tenggat_waktu.errors }}
                             </div>
                         </div>
                     </div>
@@ -98,7 +109,7 @@
                             <div class="mb-3">
                                 <label class="form-label">Selesai Aktual</label>
                                 {{ form.tanggal_selesai_aktual }}
-                                <div class="form-text">Otomatis terisi hari ini jika Status = Selesai.</div>
+                                <div class="form-text">Otomatis set status Selesai jika diisi.</div>
                             </div>
                         </div>
                     </div>
@@ -118,7 +129,6 @@
                         {{ form.progress }}
                         <span class="input-group-text">%</span>
                     </div>
-                    {{ form.progress.errors }}
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label fw-bold">Status</label>
@@ -127,7 +137,8 @@
             </div>
 
             <div class="mt-4 text-end border-top pt-3">
-                <button type="submit" class="btn btn-primary px-5 fw-bold">
+                <a href="{% url 'tugas-list' %}" class="btn btn-light me-2">Batal</a>
+                <button type="submit" class="btn btn-primary px-5 fw-bold" id="btnSimpan">
                     <i class="bi bi-save"></i> SIMPAN TUGAS
                 </button>
             </div>
@@ -144,20 +155,53 @@
         $('#id_proyek').select2({ placeholder: "Pilih Proyek...", allowClear: true, width: '100%' });
         $('#id_induk').select2({ placeholder: "Pilih Induk Tugas...", allowClear: true, width: '100%' });
         $('#id_ditugaskan_ke').select2({ placeholder: "Pilih PIC...", width: '100%' });
-        // NOTE: id_pemberi_tugas sekarang INPUT TEXT biasa, jadi tidak pakai Select2 agar bisa free text.
 
-        $('#id_tanggal_mulai').change(function(){
+        // --- VALIDATION WEEKEND (SABTU/MINGGU) ---
+        function checkWeekend(inputElement, label) {
+            var val = $(inputElement).val();
+            if(!val) return;
+            
+            var date = new Date(val);
+            var day = date.getDay(); // 0 = Minggu, 6 = Sabtu
+            
+            if(day === 0 || day === 6) {
+                alert("Tanggal " + label + " tidak boleh jatuh pada hari libur (Sabtu/Minggu).");
+                $(inputElement).val(''); 
+            }
+        }
+
+        $('#id_tanggal_mulai').change(function() { 
+            checkWeekend(this, "Mulai (Plan)"); 
+            // Auto copy to actual
             var planStart = $(this).val();
             var actStart = $('#id_tanggal_mulai_aktual').val();
             if(planStart && !actStart) {
-                $('#id_tanggal_mulai_aktual').val(planStart);
+                var d = new Date(planStart);
+                if(d.getDay() !== 0 && d.getDay() !== 6) {
+                    $('#id_tanggal_mulai_aktual').val(planStart);
+                }
+            }
+        });
+        
+        $('#id_tanggal_mulai_aktual').change(function() { checkWeekend(this, "Mulai (Actual)"); });
+
+        // --- FEATURE: AUTO COMPLETE IF ACTUAL END DATE FILLED ---
+        $('#id_tanggal_selesai_aktual').change(function() {
+            var actualEnd = $(this).val();
+            if(actualEnd) {
+                // Set Progress to 100%
+                $('#id_progress').val(100);
+                // Set Status to DONE
+                $('#id_status').val('DONE');
             }
         });
 
+        // --- LOGIKA FORM FIELD TOGGLE ---
         function toggleFields() {
             var tipe = $('#id_tipe_tugas').val();
             if(tipe === 'ADHOC') {
-                $('#id_proyek').prop('disabled', true).val(null).trigger('change');
+                $('#id_proyek').val(null).trigger('change'); 
+                $('#id_proyek').prop('disabled', true); 
             } else if (tipe === 'PROJECT') {
                 $('#id_proyek').prop('disabled', false);
             } else {
@@ -166,6 +210,13 @@
         }
         $('#id_tipe_tugas').change(toggleFields);
         toggleFields();
+        
+        // --- Loading State ---
+        $('#taskForm').submit(function() {
+            var btn = $('#btnSimpan');
+            btn.prop('disabled', true);
+            btn.html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Menyimpan...');
+        });
     });
 </script>
 

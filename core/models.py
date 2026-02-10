@@ -46,8 +46,14 @@ class Proyek(models.Model):
     dibuat_oleh = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 
     def clean(self):
+        # Validasi Sabtu/Minggu untuk Plan
         if self.tanggal_mulai and self.tanggal_mulai.weekday() >= 5:
-            raise ValidationError({'tanggal_mulai': 'Tanggal Mulai Plan tidak boleh jatuh pada hari libur (Sabtu/Minggu).'})
+            raise ValidationError({'tanggal_mulai': 'Start Date (Plan) tidak boleh hari libur (Sabtu/Minggu).'})
+        
+        # Validasi Sabtu/Minggu untuk Actual
+        if self.tanggal_mulai_aktual and self.tanggal_mulai_aktual.weekday() >= 5:
+            raise ValidationError({'tanggal_mulai_aktual': 'Start Date (Actual) tidak boleh hari libur (Sabtu/Minggu).'})
+
         if self.tanggal_mulai and self.tanggal_selesai:
             if self.tanggal_selesai < self.tanggal_mulai:
                 raise ValidationError({'tanggal_selesai': 'Tanggal selesai tidak boleh mendahului tanggal mulai.'})
@@ -86,8 +92,7 @@ class Tugas(models.Model):
     induk = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='subtasks')
     tergantung_pada = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dependents')
     
-    # UPDATE: Mengubah dari ForeignKey User menjadi CharField (Text Bebas)
-    pemberi_tugas = models.CharField(max_length=150, null=True, blank=True, help_text="Bisa nama user sistem atau nama manual (misal: Direktur)")
+    pemberi_tugas = models.CharField(max_length=150, null=True, blank=True, help_text="Bisa nama user sistem atau nama manual")
     
     tanggal_mulai = models.DateField(verbose_name="Start (Plan)")
     tenggat_waktu = models.DateField(verbose_name="End (Plan)")
@@ -101,15 +106,22 @@ class Tugas(models.Model):
     pemilik_grup = models.ForeignKey(Group, on_delete=models.CASCADE)
 
     def clean(self):
+        # 1. Validasi Status & Progress
         if self.status == 'DONE' and self.progress < 100:
             raise ValidationError({'status': 'Status DONE hanya boleh jika Progress 100%.'})
         
         if self.progress == 100 and self.status not in ['DONE', 'OVERDUE', 'DROP']:
              raise ValidationError({'progress': 'Jika Progress 100%, Status harus DONE/Selesai.'})
 
+        # 2. Validasi Hari Libur (Sabtu/Minggu) - Plan
         if self.tanggal_mulai and self.tanggal_mulai.weekday() >= 5:
-            raise ValidationError({'tanggal_mulai': 'Tanggal Mulai tidak boleh hari libur (Sabtu/Minggu).'})
+            raise ValidationError({'tanggal_mulai': 'Start Date (Plan) tidak boleh jatuh pada hari libur (Sabtu/Minggu).'})
 
+        # 3. Validasi Hari Libur (Sabtu/Minggu) - Actual
+        if self.tanggal_mulai_aktual and self.tanggal_mulai_aktual.weekday() >= 5:
+            raise ValidationError({'tanggal_mulai_aktual': 'Start Date (Actual) tidak boleh jatuh pada hari libur (Sabtu/Minggu).'})
+
+        # 4. Validasi Tipe Tugas
         if self.tipe_tugas == 'PROJECT' and not self.proyek:
             raise ValidationError({'proyek': 'Tugas tipe Proyek WAJIB memilih Proyek.'})
         
@@ -117,10 +129,12 @@ class Tugas(models.Model):
             raise ValidationError({'pemberi_tugas': 'Tugas Adhoc WAJIB mengisi Pemberi Tugas.'})
 
     def save(self, *args, **kwargs):
+        # Inherit dari induk jika ada
         if self.induk:
             self.tipe_tugas = self.induk.tipe_tugas
             self.proyek = self.induk.proyek
 
+        # Auto generate kode tugas
         if not self.kode_tugas:
             if self.induk:
                 count = self.induk.subtasks.count() + 1
@@ -129,6 +143,7 @@ class Tugas(models.Model):
                 last_id = Tugas.objects.filter(induk__isnull=True).count() + 1
                 self.kode_tugas = f"T-{last_id:03d}"
         
+        # Auto set Actual End Date jika DONE
         if self.status == 'DONE' and not self.tanggal_selesai_aktual:
             self.tanggal_selesai_aktual = date.today()
 
