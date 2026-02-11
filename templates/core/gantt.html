@@ -1,0 +1,146 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="bi bi-bar-chart-steps"></i> Gantt Chart</h2>
+    
+    <!-- Filter Assignee -->
+    <form method="get" class="d-flex gap-2">
+        <select name="assignee" class="form-select" onchange="this.form.submit()">
+            <option value="">-- Semua Tim --</option>
+            {% for member in team_members %}
+                <option value="{{ member.id }}" {% if request.GET.assignee == member.id|stringformat:"s" %}selected{% endif %}>
+                    {{ member.first_name|default:member.username }}
+                </option>
+            {% endfor %}
+        </select>
+        {% if request.GET.assignee %}
+            <a href="{% url 'gantt-view' %}" class="btn btn-outline-secondary"><i class="bi bi-x"></i></a>
+        {% endif %}
+    </form>
+</div>
+
+<!-- Legend -->
+<div class="mb-3 d-flex gap-3 small">
+    <div class="d-flex align-items-center"><span style="width:15px;height:15px;background:#a3a3ff;margin-right:5px;border-radius:3px;"></span> Plan (Normal)</div>
+    <div class="d-flex align-items-center"><span style="width:15px;height:15px;background:#28a745;margin-right:5px;border-radius:3px;"></span> Selesai</div>
+    <div class="d-flex align-items-center"><span style="width:15px;height:15px;background:#dc3545;margin-right:5px;border-radius:3px;"></span> Overdue</div>
+    <div class="d-flex align-items-center"><span style="width:15px;height:15px;background:#ffc107;margin-right:5px;border-radius:3px;"></span> On Hold</div>
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="card-body p-0 overflow-auto" id="gantt-container" style="min-height: 200px;">
+        <svg id="gantt"></svg>
+    </div>
+</div>
+
+<!-- Library Frappe Gantt -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/frappe-gantt/0.6.1/frappe-gantt.css">
+
+<style>
+    .bar-done .bar { fill: #28a745 !important; }
+    .bar-done .bar-progress { fill: #1e7e34 !important; }
+    .bar-overdue .bar { fill: #dc3545 !important; }
+    .bar-overdue .bar-progress { fill: #bd2130 !important; }
+    .bar-hold .bar { fill: #ffc107 !important; }
+    .bar-project .bar { fill: #6c757d !important; opacity: 0.5; }
+    .gantt .bar-label { fill: #fff; font-weight: bold; font-size: 12px; }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const assignee = urlParams.get('assignee') || '';
+
+        fetch(`/gantt-data/?assignee=${assignee}`)
+            .then(res => res.json())
+            .then(tasks => {
+                console.log("Gantt Data Loaded:", tasks); // Debugging Log
+
+                if (tasks.length === 0) {
+                    document.getElementById('gantt-container').innerHTML = `
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-calendar-x fs-1"></i><br>
+                            Tidak ada data tugas untuk ditampilkan.
+                        </div>`;
+                    return;
+                }
+
+                try {
+                    var gantt = new Gantt("#gantt", tasks, {
+                        header_height: 50,
+                        column_width: 30,
+                        step: 24,
+                        view_modes: ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'],
+                        bar_height: 25,
+                        bar_corner_radius: 3,
+                        arrow_curve: 5,
+                        padding: 18,
+                        view_mode: 'Week', 
+                        date_format: 'YYYY-MM-DD',
+                        language: 'en', // FIX: Diubah ke 'en' untuk menghindari error array bulan
+                        
+                        custom_popup_html: function(task) {
+                            const status = task.custom_class ? task.custom_class.replace('bar-', '').toUpperCase() : 'TODO';
+                            const datesHtml = task.custom_html || '';
+                            
+                            return `
+                                <div class="details-container" style="width: 200px; padding: 10px;">
+                                    <h6 style="margin:0 0 5px 0;">${task.name}</h6>
+                                    <div style="font-size:12px; margin-bottom:5px;">
+                                        Progress: <b>${task.progress}%</b> <span class="badge bg-secondary" style="font-size:10px">${status}</span>
+                                    </div>
+                                    <hr style="margin: 5px 0; border-color: #ddd;">
+                                    <div style="font-size:11px; line-height: 1.4;">
+                                        ${datesHtml}
+                                    </div>
+                                </div>
+                            `;
+                        },
+
+                        on_date_change: function(task, start, end) {
+                            fetch(`/api/task/${task.id}/update-date/`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': '{{ csrf_token }}'
+                                },
+                                body: JSON.stringify({
+                                    start: start.toISOString().split('T')[0],
+                                    end: end.toISOString().split('T')[0]
+                                })
+                            })
+                            .then(res => res.json())
+                            .then(data => {
+                                if(data.error) {
+                                    alert("Gagal update: " + data.error);
+                                    location.reload(); 
+                                }
+                            });
+                        },
+                        
+                        on_progress_change: function(task, progress) {
+                            fetch(`/api/task/${task.id}/update-progress/`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+                                body: JSON.stringify({ progress: progress })
+                            });
+                        },
+                    });
+                } catch (error) {
+                    console.error("Gantt Error Stack:", error);
+                    document.getElementById('gantt-container').innerHTML = `
+                        <div class="alert alert-danger m-3">
+                            Gagal menampilkan grafik. Periksa Console Log (F12).<br>
+                            Error: ${error.message}
+                        </div>`;
+                }
+            })
+            .catch(err => {
+                console.error("Fetch Error:", err);
+                document.getElementById('gantt-container').innerHTML = `<div class="alert alert-danger m-3">Gagal mengambil data server.</div>`;
+            });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow border-0">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-file-earmark-spreadsheet"></i> Import Tugas dari Excel</h5>
+                    <!-- Tombol Download Template -->
+                    <a href="{% url 'tugas-import-template' %}" class="btn btn-sm btn-light fw-bold">
+                        <i class="bi bi-download"></i> Download Template
+                    </a>
+                </div>
+                <div class="card-body p-4">
+                    <p class="text-muted">Gunakan fitur ini untuk memasukkan banyak tugas sekaligus. Pastikan format Excel sesuai template.</p>
+                    
+                    <div class="alert alert-info small">
+                        <strong>Aturan Import:</strong>
+                        <ul class="mb-0 ps-3">
+                            <li>Format file harus <code>.xlsx</code></li>
+                            <li>Kolom wajib: Nama Tugas, Start Date, End Date</li>
+                            <li>Tipe Tugas: <code>PROJECT</code>, <code>ADHOC</code>, atau <code>BAU</code></li>
+                            <li>Jika tipe PROJECT, kolom <strong>Kode Proyek</strong> wajib diisi dan sesuai data yang ada.</li>
+                            <li>Tanggal Mulai tidak boleh hari Sabtu/Minggu.</li>
+                            <li>Pemberi tugas dapat diisi nama bebas.</li>
+                        </ul>
+                    </div>
+
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            {{ form.as_p }}
+                        </div>
+                        
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{% url 'tugas-list' %}" class="btn btn-outline-secondary">Batal</a>
+                            <button type="submit" class="btn btn-success fw-bold">
+                                <i class="bi bi-upload"></i> Upload & Proses
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
