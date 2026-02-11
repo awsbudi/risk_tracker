@@ -18,7 +18,7 @@ from django.contrib.auth.models import User, Group
 from .models import Proyek, Tugas, TemplateBAU, AuditLog, UserProfile
 from .forms import ProyekForm, TugasForm, ImportTugasForm, ImportUserForm
 
-# --- HELPER ---
+# --- HELPER (Tetap Sama) ---
 def log_activity(user, action, model_name, obj_id, details):
     AuditLog.objects.create(user=user, action=action, target_model=model_name, target_id=str(obj_id), details=details)
 
@@ -187,7 +187,7 @@ def import_tugas(request):
     else: form = ImportTugasForm()
     return render(request, 'core/import_tugas.html', {'form': form})
 
-# --- USER IMPORT VIEWS (UPDATED: SET IS_STAFF=TRUE) ---
+# --- USER IMPORT VIEWS (FIXED TRANSACTION) ---
 @login_required
 def download_template_user(request):
     if not (request.user.is_superuser or is_admin(request.user)): return HttpResponseForbidden("Akses ditolak.")
@@ -196,7 +196,6 @@ def download_template_user(request):
     wb = openpyxl.Workbook()
     ws = wb.active; ws.title = "Template User"
     
-    # Kolom terakhir adalah Status Keaktifan (Active/Inactive)
     headers = ['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role (ADMIN/LEADER/MEMBER)', 'Nama Divisi (Group)', 'Status (ACTIVE/INACTIVE)']
     ws.append(headers)
     
@@ -225,28 +224,30 @@ def import_user(request):
                 ws = wb.active
                 success_users, errors = [], []
                 
-                with transaction.atomic():
-                    for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                        if not row[0]: continue
-                        try:
+                # REVISI: Pindahkan transaction.atomic() KE DALAM loop.
+                # Agar jika 1 user gagal (misal duplikat), user lain tetap bisa tersimpan.
+                
+                for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                    if not row[0]: continue
+                    try:
+                        # Mulai transaksi per baris user
+                        with transaction.atomic():
                             uname = str(row[0]).strip().lower().replace(" ", "")
                             email, pwd = row[1], str(row[2]) if row[2] else "Default123"
                             fname, lname = row[3] or "", row[4] or ""
                             role, group_name = (str(row[5]).upper().strip() if row[5] else 'MEMBER'), str(row[6]).strip() if row[6] else None
                             
-                            # Cek Status Aktif (Employment Status)
                             status_staf = str(row[7]).upper().strip() if len(row) > 7 and row[7] else 'ACTIVE'
                             is_active_user = False if status_staf in ['INACTIVE', 'NONAKTIF', '0', 'FALSE'] else True
 
-                            if User.objects.filter(username=uname).exists(): raise ValueError(f"Username {uname} sudah ada")
+                            # Validasi manual sebelum create
+                            if User.objects.filter(username=uname).exists(): 
+                                raise ValueError(f"Username {uname} sudah ada")
                             
                             u = User.objects.create_user(username=uname, email=email, password=pwd)
                             u.first_name = fname; u.last_name = lname
-                            u.is_active = is_active_user # Set tick mark 'Active'
-                            
-                            # FIX: Set tick mark 'Staff status' agar dianggap sebagai staf
+                            u.is_active = is_active_user 
                             u.is_staff = True 
-                            
                             u.save()
                             
                             p, created = UserProfile.objects.get_or_create(user=u)
@@ -257,11 +258,17 @@ def import_user(request):
                                 u.groups.add(g)
                             
                             success_users.append(uname)
-                        except Exception as e: errors.append(f"Baris {idx} ({row[0]}): {str(e)}")
+                            
+                    except Exception as e: 
+                        # Jika error, transaksi per baris ini akan rollback otomatis
+                        errors.append(f"Baris {idx} ({row[0]}): {str(e)}")
                 
                 if success_users: messages.success(request, f"Sukses buat user: {', '.join(success_users[:5])}...")
                 if errors: messages.warning(request, f"Gagal: {'; '.join(errors[:5])}")
-                return redirect('dashboard')
+                
+                # Redirect ke halaman User List agar langsung kelihatan hasilnya
+                return redirect('user-list')
+
             except Exception as e: messages.error(request, f"File Error: {str(e)}")
     else: form = ImportUserForm()
     return render(request, 'core/import_user.html', {'form': form})
@@ -288,27 +295,23 @@ def bulk_delete_users(request):
         return HttpResponseForbidden("Akses ditolak. Hanya Superuser yang boleh menghapus pengguna.")
     
     if request.method == 'POST':
-        # Ambil list ID dari checkbox yang dicentang
         user_ids = request.POST.getlist('selected_users')
-        
         if user_ids:
-            # Filter user yang akan dihapus
-            # PENTING: Exclude diri sendiri agar admin tidak tidak sengaja menghapus akunnya sendiri
+            # Exclude diri sendiri
             users_to_delete = User.objects.filter(id__in=user_ids).exclude(id=request.user.id)
             count = users_to_delete.count()
             
             if count > 0:
-                # Logika Delete
                 users_to_delete.delete()
                 messages.success(request, f"Berhasil menghapus {count} pengguna.")
             else:
-                messages.warning(request, "Tidak ada data yang dihapus (mungkin Anda mencoba menghapus akun sendiri?).")
+                messages.warning(request, "Tidak ada data yang dihapus.")
         else:
             messages.warning(request, "Tidak ada pengguna yang dipilih.")
             
     return redirect('user-list')
 
-# --- TUGAS VIEWS ---
+# --- TUGAS VIEWS (Tetap Sama) ---
 class TugasListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     model = Tugas
     template_name = 'core/tugas_list.html'
@@ -359,7 +362,7 @@ class TugasDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         log_activity(request.user, 'DELETE', 'Tugas', self.get_object().kode_tugas, f"Deleted: {self.get_object().nama_tugas}")
         return super().delete(request, *args, **kwargs)
 
-# --- API HELPERS ---
+# --- API HELPERS (Tetap Sama) ---
 @login_required
 def get_entity_dates_api(request): return JsonResponse({}) 
 
@@ -477,7 +480,6 @@ def calendar_data(request):
         elif t.status == 'ON_HOLD': color = '#ffc107' 
         elif t.status == 'IN_PROGRESS': color = '#0dcaf0' 
         
-        # FIX: FullCalendar 'end' is exclusive
         end_date = t.tenggat_waktu + timedelta(days=1)
         
         events.append({
