@@ -20,7 +20,9 @@ urlpatterns = [
     path('tugas/<int:pk>/update/', views.TugasUpdateView.as_view(), name='tugas-update'),
     path('tugas/<int:pk>/delete/', views.TugasDeleteView.as_view(), name='tugas-delete'),
 
-    # --- USER MANAGEMENT ---
+    # --- USER MANAGEMENT (UPDATE) ---
+    path('users/', views.UserListView.as_view(), name='user-list'), # Halaman List
+    path('users/delete/', views.bulk_delete_users, name='user-bulk-delete'), # Aksi Delete
     path('users/import/', views.import_user, name='user-import'),
     path('users/import/template/', views.download_template_user, name='user-import-template'),
 

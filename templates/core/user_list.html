@@ -1,0 +1,147 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold"><i class="bi bi-people-fill"></i> Daftar Pengguna</h2>
+            <p class="text-muted">Kelola akun pengguna aplikasi.</p>
+        </div>
+        
+        <div class="d-flex gap-2">
+            <a href="{% url 'user-import' %}" class="btn btn-success">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Import Excel
+            </a>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Kembali
+            </a>
+        </div>
+    </div>
+
+    <div class="card shadow border-0">
+        <div class="card-body p-0">
+            <!-- Form Pembungkus untuk Action Delete -->
+            <form method="post" action="{% url 'user-bulk-delete' %}" id="bulkDeleteForm">
+                {% csrf_token %}
+                
+                <!-- Toolbar Action -->
+                <div class="bg-light p-3 border-bottom d-flex align-items-center gap-3" id="actionToolbar" style="display:none;">
+                    <span class="fw-bold text-danger" id="selectedCount">0 dipilih</span>
+                    <button type="button" class="btn btn-danger btn-sm" onclick="confirmDelete()">
+                        <i class="bi bi-trash"></i> Hapus Terpilih
+                    </button>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 40px;" class="text-center">
+                                    <input type="checkbox" class="form-check-input" id="selectAll">
+                                </th>
+                                <th>Pengguna</th>
+                                <th>Role</th>
+                                <th>Divisi (Group)</th>
+                                <th>Status</th>
+                                <th>Staff Access</th>
+                                <th>Last Login</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for u in users %}
+                            <tr class="{% if u == user %}table-warning{% endif %}">
+                                <td class="text-center">
+                                    {% if u != user %}
+                                        <input type="checkbox" name="selected_users" value="{{ u.id }}" class="form-check-input user-checkbox">
+                                    {% else %}
+                                        <i class="bi bi-person-fill text-muted" title="Anda (Tidak bisa dihapus)"></i>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="fw-bold">{{ u.get_full_name|default:u.username }}</div>
+                                    <small class="text-muted">@{{ u.username }} | {{ u.email }}</small>
+                                </td>
+                                <td>
+                                    {% if u.is_superuser %}
+                                        <span class="badge bg-dark">SUPERUSER</span>
+                                    {% else %}
+                                        {% if u.profile.role == 'ADMIN' %}<span class="badge bg-danger">ADMIN</span>
+                                        {% elif u.profile.role == 'LEADER' %}<span class="badge bg-primary">LEADER</span>
+                                        {% else %}<span class="badge bg-secondary">MEMBER</span>
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% for g in u.groups.all %}
+                                        <span class="badge bg-light text-dark border">{{ g.name }}</span>
+                                    {% empty %}
+                                        -
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {% if u.is_active %}
+                                        <span class="text-success"><i class="bi bi-check-circle-fill"></i> Active</span>
+                                    {% else %}
+                                        <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Inactive</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if u.is_staff %}
+                                        <i class="bi bi-check-lg text-success fw-bold"></i>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small text-muted">
+                                    {{ u.last_login|date:"d M Y H:i"|default:"Belum pernah login" }}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="7" class="text-center py-4">Belum ada pengguna lain.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const selectAll = document.getElementById('selectAll');
+        const checkboxes = document.querySelectorAll('.user-checkbox');
+        const actionToolbar = document.getElementById('actionToolbar');
+        const selectedCountLabel = document.getElementById('selectedCount');
+
+        function updateToolbar() {
+            let checkedCount = document.querySelectorAll('.user-checkbox:checked').length;
+            if (checkedCount > 0) {
+                actionToolbar.style.display = 'flex'; // Tampilkan toolbar delete
+                selectedCountLabel.textContent = checkedCount + " Pengguna dipilih";
+            } else {
+                actionToolbar.style.display = 'none'; // Sembunyikan jika tidak ada yg dipilih
+            }
+        }
+
+        // Select All Logic
+        selectAll.addEventListener('change', function() {
+            checkboxes.forEach(cb => cb.checked = selectAll.checked);
+            updateToolbar();
+        });
+
+        // Individual Checkbox Logic
+        checkboxes.forEach(cb => {
+            cb.addEventListener('change', updateToolbar);
+        });
+    });
+
+    function confirmDelete() {
+        if (confirm("Apakah Anda YAKIN ingin menghapus pengguna yang dipilih? Tindakan ini tidak dapat dibatalkan dan akan menghapus semua tugas terkait pengguna tersebut.")) {
+            document.getElementById('bulkDeleteForm').submit();
+        }
+    }
+</script>
+{% endblock %}

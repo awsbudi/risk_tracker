@@ -6,14 +6,15 @@
     <div>
         <p class="text-muted">Selamat datang, {{ user.get_full_name|default:user.username }}!</p>
     </div>
-    
+
     <div class="d-flex gap-2">
-        <!-- Tombol Import User (Hanya Superuser) -->
-        {% if user.is_superuser %}
-        <a href="{% url 'user-import' %}" class="btn btn-dark shadow-sm">
-            <i class="bi bi-people-fill"></i> Import User
-        </a>
-        {% endif %}
+    <!-- UPDATE: Tombol Kelola User (List) -->
+    {% if user.is_superuser %}
+    <a href="{% url 'user-list' %}" class="btn btn-dark shadow-sm">
+        <i class="bi bi-people-fill"></i> Kelola User
+    </a>
+    {% endif %}
+    
     </div>
 </div>
 

@@ -187,7 +187,7 @@ def import_tugas(request):
     else: form = ImportTugasForm()
     return render(request, 'core/import_tugas.html', {'form': form})
 
-# --- USER IMPORT VIEWS ---
+# --- USER IMPORT VIEWS (UPDATED: SET IS_STAFF=TRUE) ---
 @login_required
 def download_template_user(request):
     if not (request.user.is_superuser or is_admin(request.user)): return HttpResponseForbidden("Akses ditolak.")
@@ -195,9 +195,22 @@ def download_template_user(request):
     response['Content-Disposition'] = 'attachment; filename=Template_Import_User.xlsx'
     wb = openpyxl.Workbook()
     ws = wb.active; ws.title = "Template User"
-    ws.append(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role (ADMIN/LEADER/MEMBER)', 'Nama Divisi (Group)'])
+    
+    # Kolom terakhir adalah Status Keaktifan (Active/Inactive)
+    headers = ['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role (ADMIN/LEADER/MEMBER)', 'Nama Divisi (Group)', 'Status (ACTIVE/INACTIVE)']
+    ws.append(headers)
+    
     for cell in ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill(start_color="198754", end_color="198754", fill_type="solid")
-    ws.append(['budi.santoso', 'budi@kantor.com', 'Rahasia123', 'Budi', 'Santoso', 'MEMBER', 'IT Development'])
+    
+    sample_data = [
+        ['budi.santoso', 'budi@kantor.com', 'Rahasia123', 'Budi', 'Santoso', 'MEMBER', 'IT Development', 'ACTIVE'],
+        ['andi.resigned', 'andi@kantor.com', 'Rahasia123', 'Andi', 'Lama', 'MEMBER', 'IT Development', 'INACTIVE'],
+    ]
+    for row in sample_data: ws.append(row)
+    
+    for column in ws.columns:
+        ws.column_dimensions[get_column_letter(column[0].column)].width = 20
+
     wb.save(response)
     return response
 
@@ -221,10 +234,20 @@ def import_user(request):
                             fname, lname = row[3] or "", row[4] or ""
                             role, group_name = (str(row[5]).upper().strip() if row[5] else 'MEMBER'), str(row[6]).strip() if row[6] else None
                             
+                            # Cek Status Aktif (Employment Status)
+                            status_staf = str(row[7]).upper().strip() if len(row) > 7 and row[7] else 'ACTIVE'
+                            is_active_user = False if status_staf in ['INACTIVE', 'NONAKTIF', '0', 'FALSE'] else True
+
                             if User.objects.filter(username=uname).exists(): raise ValueError(f"Username {uname} sudah ada")
                             
                             u = User.objects.create_user(username=uname, email=email, password=pwd)
-                            u.first_name = fname; u.last_name = lname; u.save()
+                            u.first_name = fname; u.last_name = lname
+                            u.is_active = is_active_user # Set tick mark 'Active'
+                            
+                            # FIX: Set tick mark 'Staff status' agar dianggap sebagai staf
+                            u.is_staff = True 
+                            
+                            u.save()
                             
                             p, created = UserProfile.objects.get_or_create(user=u)
                             p.role = role; p.save()
@@ -242,6 +265,48 @@ def import_user(request):
             except Exception as e: messages.error(request, f"File Error: {str(e)}")
     else: form = ImportUserForm()
     return render(request, 'core/import_user.html', {'form': form})
+
+# --- USER MANAGEMENT: LIST & BULK DELETE ---
+
+class UserListView(LoginRequiredMixin, UserPassesTestMixin, ListView):
+    model = User
+    template_name = 'core/user_list.html'
+    context_object_name = 'users'
+
+    def test_func(self):
+        # Hanya Superuser yang boleh akses halaman ini
+        return self.request.user.is_superuser
+
+    def get_queryset(self):
+        # Tampilkan semua user, urutkan berdasarkan username
+        return User.objects.all().order_by('username').select_related('profile')
+
+@login_required
+def bulk_delete_users(request):
+    # Security Check: Hanya Superuser
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Akses ditolak. Hanya Superuser yang boleh menghapus pengguna.")
+    
+    if request.method == 'POST':
+        # Ambil list ID dari checkbox yang dicentang
+        user_ids = request.POST.getlist('selected_users')
+        
+        if user_ids:
+            # Filter user yang akan dihapus
+            # PENTING: Exclude diri sendiri agar admin tidak tidak sengaja menghapus akunnya sendiri
+            users_to_delete = User.objects.filter(id__in=user_ids).exclude(id=request.user.id)
+            count = users_to_delete.count()
+            
+            if count > 0:
+                # Logika Delete
+                users_to_delete.delete()
+                messages.success(request, f"Berhasil menghapus {count} pengguna.")
+            else:
+                messages.warning(request, "Tidak ada data yang dihapus (mungkin Anda mencoba menghapus akun sendiri?).")
+        else:
+            messages.warning(request, "Tidak ada pengguna yang dipilih.")
+            
+    return redirect('user-list')
 
 # --- TUGAS VIEWS ---
 class TugasListView(LoginRequiredMixin, GroupAccessMixin, ListView):
@@ -323,6 +388,9 @@ def update_task_date_api(request, pk):
             e = datetime.strptime(d.get('end'), "%Y-%m-%d").date()
             if s.weekday() >= 5: return JsonResponse({'error': 'Hari Libur!'}, status=400)
             t = get_object_or_404(Tugas, pk=pk)
+            # Permission check
+            if not (request.user.is_superuser or is_admin(request.user) or is_leader(request.user) or t.ditugaskan_ke == request.user):
+                return JsonResponse({'error': 'Permission denied'}, status=403)
             t.tanggal_mulai = s; t.tenggat_waktu = e; t.save()
             log_activity(request.user, 'UPDATE', 'Tugas', t.kode_tugas, f"Gantt: {s}->{e}")
             return JsonResponse({'status': 'success'})
