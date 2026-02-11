@@ -2,10 +2,14 @@ from django import forms
 from django.contrib.auth.models import User
 from .models import Proyek, Tugas, TemplateBAU
 
-# Form untuk Upload Excel
+# --- FORM IMPORT EXCEL ---
 class ImportTugasForm(forms.Form):
-    file_excel = forms.FileField(label="Upload File Excel (.xlsx)", widget=forms.FileInput(attrs={'class': 'form-control'}))
+    file_excel = forms.FileField(label="Upload File Excel Tugas (.xlsx)", widget=forms.FileInput(attrs={'class': 'form-control'}))
 
+class ImportUserForm(forms.Form):
+    file_excel = forms.FileField(label="Upload File Excel User (.xlsx)", widget=forms.FileInput(attrs={'class': 'form-control'}))
+
+# --- FORM PROYEK ---
 class ProyekForm(forms.ModelForm):
     class Meta:
         model = Proyek
@@ -13,7 +17,7 @@ class ProyekForm(forms.ModelForm):
         widgets = {
             'nama_proyek': forms.TextInput(attrs={'class': 'form-control'}),
             'deskripsi': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-            # FIX: Tambahkan format='%Y-%m-%d' agar nilai muncul saat Edit
+            # FIX: format='%Y-%m-%d' agar value tanggal muncul saat mode Edit
             'tanggal_mulai': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
             'tanggal_selesai': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
             'tanggal_mulai_aktual': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
@@ -27,6 +31,7 @@ class ProyekForm(forms.ModelForm):
             'tanggal_selesai_aktual': 'End Date (Actual/Realisasi)',
         }
 
+# --- FORM TUGAS ---
 class TugasForm(forms.ModelForm):
     class Meta:
         model = Tugas
@@ -41,12 +46,13 @@ class TugasForm(forms.ModelForm):
             'nama_tugas': forms.TextInput(attrs={'class': 'form-control'}),
             'tipe_tugas': forms.Select(attrs={'class': 'form-select'}),
             'proyek': forms.Select(attrs={'class': 'form-select'}),
+            # Pemberi Tugas Text Input dengan Datalist
             'pemberi_tugas': forms.TextInput(attrs={'class': 'form-control', 'list': 'user-list', 'placeholder': 'Ketik nama atau pilih...'}),
             'induk': forms.Select(attrs={'class': 'form-select'}),
             'tergantung_pada': forms.Select(attrs={'class': 'form-select'}),
             'ditugaskan_ke': forms.Select(attrs={'class': 'form-select'}),
             
-            # FIX: Tambahkan format='%Y-%m-%d' di sini
+            # FIX: format='%Y-%m-%d' agar value tanggal muncul saat mode Edit
             'tanggal_mulai': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
             'tenggat_waktu': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
             'tanggal_mulai_aktual': forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'class': 'form-control'}),
@@ -78,4 +84,5 @@ class TugasForm(forms.ModelForm):
                 self.fields['ditugaskan_ke'].queryset = team_users
             
             if not self.instance.pk:
+                # Default Pemberi Tugas = Nama User Login (String)
                 self.initial['pemberi_tugas'] = user.get_full_name() or user.username

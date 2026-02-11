@@ -1,12 +1,29 @@
 {% extends 'core/base.html' %}
 {% block content %}
-<h2>Dashboard Proyek & Tugas Risk Management</h2>
+<h2>Dashboard Project & Task Risk Management</h2>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <p class="text-muted">Selamat datang, {{ user.get_full_name|default:user.username }}!</p>
+    </div>
+    
+    <div class="d-flex gap-2">
+        <!-- Tombol Import User (Hanya Superuser) -->
+        {% if user.is_superuser %}
+        <a href="{% url 'user-import' %}" class="btn btn-dark shadow-sm">
+            <i class="bi bi-people-fill"></i> Import User
+        </a>
+        {% endif %}
+    </div>
+</div>
+
 <div class="row mt-4">
     <div class="col-md-3"><div class="card p-3 bg-primary text-white"><h3>{{ total_projects }}</h3> <small>Total Proyek</small></div></div>
     <div class="col-md-3"><div class="card p-3 bg-success text-white"><h3>{{ total_tasks }}</h3> <small>Total Tugas</small></div></div>
     <div class="col-md-3"><div class="card p-3 bg-danger text-white"><h3>{{ overdue_tasks }}</h3> <small>Terlambat</small></div></div>
     <div class="col-md-3"><div class="card p-3 bg-warning text-white"><h3>{{ in_progress }}</h3> <small>Sedang Berjalan</small></div></div>
 </div>
+
 
 <div class="row mt-4">
     <div class="col-md-6">

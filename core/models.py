@@ -15,6 +15,10 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='MEMBER')
 
+    class Meta:
+        verbose_name = "Profil Pengguna"
+        verbose_name_plural = "Profil Pengguna" # FIX: Nama jamak di admin panel
+
     def __str__(self): return f"{self.user.username} - {self.role}"
 
 @receiver(post_save, sender=User)
@@ -44,6 +48,10 @@ class Proyek(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='RUNNING')
     pemilik_grup = models.ForeignKey(Group, on_delete=models.CASCADE)
     dibuat_oleh = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        verbose_name = "Proyek"
+        verbose_name_plural = "Proyek" # FIX: Nama jamak di admin panel
 
     def clean(self):
         # Validasi Sabtu/Minggu untuk Plan
@@ -105,6 +113,10 @@ class Tugas(models.Model):
     
     pemilik_grup = models.ForeignKey(Group, on_delete=models.CASCADE)
 
+    class Meta:
+        verbose_name = "Tugas"
+        verbose_name_plural = "Tugas" # FIX: Menghapus akhiran 's' otomatis
+
     def clean(self):
         # 1. Validasi Status & Progress
         if self.status == 'DONE' and self.progress < 100:
@@ -151,7 +163,7 @@ class Tugas(models.Model):
 
     def __str__(self): return f"{self.kode_tugas} - {self.nama_tugas}"
 
-# --- Models Lain Tetap Sama ---
+# --- Template BAU ---
 class TemplateBAU(models.Model):
     FREKUENSI_CHOICES = [
         ('WEEKLY', 'Mingguan'), ('MONTHLY', 'Bulanan'),
@@ -162,6 +174,11 @@ class TemplateBAU(models.Model):
     frekuensi = models.CharField(max_length=20, choices=FREKUENSI_CHOICES)
     default_pic = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     pemilik_grup = models.ForeignKey(Group, on_delete=models.CASCADE)
+    
+    class Meta:
+        verbose_name = "Template BAU"
+        verbose_name_plural = "Template BAU" # FIX
+
     def __str__(self): return f"{self.nama_tugas} ({self.frekuensi})"
 
 class AuditLog(models.Model):
@@ -172,3 +189,7 @@ class AuditLog(models.Model):
     target_id = models.CharField(max_length=50)
     details = models.TextField()
     timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Log Audit"
+        verbose_name_plural = "Log Audit" # FIX

@@ -16,9 +16,13 @@ urlpatterns = [
     path('tugas/', views.TugasListView.as_view(), name='tugas-list'),
     path('tugas/create/', views.TugasCreateView.as_view(), name='tugas-create'),
     path('tugas/import/', views.import_tugas, name='tugas-import'),
-    path('tugas/import/template/', views.download_template_tugas, name='tugas-import-template'), # BARU
+    path('tugas/import/template/', views.download_template_tugas, name='tugas-import-template'),
     path('tugas/<int:pk>/update/', views.TugasUpdateView.as_view(), name='tugas-update'),
     path('tugas/<int:pk>/delete/', views.TugasDeleteView.as_view(), name='tugas-delete'),
+
+    # --- USER MANAGEMENT ---
+    path('users/import/', views.import_user, name='user-import'),
+    path('users/import/template/', views.download_template_user, name='user-import-template'),
 
     # --- GANTT CHART ---
     path('gantt/', views.gantt_view, name='gantt-view'),          
