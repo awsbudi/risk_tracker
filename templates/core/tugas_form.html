@@ -33,6 +33,22 @@
         {% csrf_token %}
         <div class="card-body p-4">
             
+            <!-- UPDATE: FIELD DIVISI KHUSUS SUPERADMIN -->
+            {% if user.is_superuser %}
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="p-3 bg-warning bg-opacity-10 border border-warning rounded">
+                        <label class="form-label fw-bold text-dark">
+                            <i class="bi bi-shield-lock-fill text-warning"></i> Divisi / Group (Khusus Superadmin) <span class="text-danger">*</span>
+                        </label>
+                        {{ form.pemilik_grup }}
+                        {{ form.pemilik_grup.errors }}
+                        <div class="form-text small text-muted">Karena Superadmin tidak terikat divisi, Anda <b>wajib menentukan</b> di divisi mana tugas ini akan bernaung agar Admin terkait bisa melihatnya.</div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- SECTION 1: INFO DASAR -->
             <h5 class="text-primary border-bottom pb-2 mb-3">Informasi Tugas</h5>
             
@@ -56,8 +72,9 @@
                     <label class="form-label">Pemberi Tugas (Wajib jika Adhoc)</label>
                     {{ form.pemberi_tugas }}
                     <datalist id="user-list">
-                        {% for user in form.fields.ditugaskan_ke.queryset %}
-                            <option value="{{ user.get_full_name|default:user.username }}">
+                        <!-- Menampilkan daftar user aktif untuk auto-complete -->
+                        {% for u in form.fields.ditugaskan_ke.queryset %}
+                            <option value="{{ u.get_full_name|default:u.username }}">
                         {% endfor %}
                     </datalist>
                     <div class="form-text">Ketik nama manual (Direktur/Klien) atau pilih dari list.</div>
@@ -146,15 +163,18 @@
     </form>
 </div>
 
+<!-- Select2 & jQuery -->
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
     $(document).ready(function() {
+        // Inisialisasi Select2
         $('#id_proyek').select2({ placeholder: "Pilih Proyek...", allowClear: true, width: '100%' });
         $('#id_induk').select2({ placeholder: "Pilih Induk Tugas...", allowClear: true, width: '100%' });
         $('#id_ditugaskan_ke').select2({ placeholder: "Pilih PIC...", width: '100%' });
+        $('#id_pemilik_grup').select2({ placeholder: "Pilih Divisi/Grup...", width: '100%' });
 
         // --- VALIDATION WEEKEND (SABTU/MINGGU) ---
         function checkWeekend(inputElement, label) {
@@ -205,7 +225,7 @@
             } else if (tipe === 'PROJECT') {
                 $('#id_proyek').prop('disabled', false);
             } else {
-                $('#id_proyek').prop('disabled', true);
+                $('#id_proyek').prop('disabled', true); // BAU / Lainnya
             }
         }
         $('#id_tipe_tugas').change(toggleFields);
@@ -221,6 +241,7 @@
 </script>
 
 <style>
+    /* Styling agar Select2 menyatu dengan Bootstrap 5 */
     .select2-container .select2-selection--single {
         height: 38px !important;
         border: 1px solid #ced4da !important;
