@@ -18,24 +18,44 @@ from django.contrib.auth.models import User, Group
 from .models import Proyek, Tugas, TemplateBAU, AuditLog, UserProfile
 from .forms import ProyekForm, TugasForm, ImportTugasForm, ImportUserForm
 
-# --- HELPER (Tetap Sama) ---
+# --- HELPER & HIERARKI DIVISI ---
 def log_activity(user, action, model_name, obj_id, details):
     AuditLog.objects.create(user=user, action=action, target_model=model_name, target_id=str(obj_id), details=details)
 
-def get_role(user): return user.profile.role if hasattr(user, 'profile') else 'MEMBER'
+def get_role(user):
+    try: return user.profile.role
+    except Exception: return 'MEMBER'
+
 def is_admin(user): return user.is_superuser or get_role(user) == 'ADMIN'
 def is_leader(user): return get_role(user) == 'LEADER'
 def is_member(user): return get_role(user) == 'MEMBER'
+
+def get_accessible_groups(user):
+    if user.is_superuser: return Group.objects.all()
+    
+    user_groups = list(user.groups.all())
+    group_names = [g.name.upper() for g in user_groups]
+    role = get_role(user)
+    
+    # Hierarki Risk Management
+    if 'RISK MANAGEMENT' in group_names and role == 'ADMIN':
+        sub_groups = Group.objects.filter(name__in=[
+            'RISK PROCESS CONTROL', 'PORTFOLIO MANAGEMENT & GOVERNANCE', 'RISK PRODUCT & DEVELOPMENT'
+        ])
+        user_groups.extend(list(sub_groups))
+        
+    return Group.objects.filter(id__in=[g.id for g in user_groups]).distinct()
 
 class GroupAccessMixin:
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_superuser: return qs
-        user_groups = user.groups.all()
+        
+        accessible_groups = get_accessible_groups(user)
         if self.model == Tugas:
-            return qs.filter(Q(pemilik_grup__in=user_groups) | Q(ditugaskan_ke=user)).distinct()
-        return qs.filter(pemilik_grup__in=user_groups).distinct()
+            return qs.filter(Q(pemilik_grup__in=accessible_groups) | Q(ditugaskan_ke=user)).distinct()
+        return qs.filter(pemilik_grup__in=accessible_groups).distinct()
 
 @login_required
 def dashboard(request):
@@ -43,10 +63,12 @@ def dashboard(request):
     if user.is_superuser:
         tasks = Tugas.objects.all()
         projects = Proyek.objects.all()
+        team_members = User.objects.all()
     else:
-        user_groups = user.groups.all()
-        tasks = Tugas.objects.filter(Q(pemilik_grup__in=user_groups) | Q(ditugaskan_ke=user)).distinct()
-        projects = Proyek.objects.filter(pemilik_grup__in=user_groups).distinct()
+        accessible_groups = get_accessible_groups(user)
+        tasks = Tugas.objects.filter(Q(pemilik_grup__in=accessible_groups) | Q(ditugaskan_ke=user)).distinct()
+        projects = Proyek.objects.filter(pemilik_grup__in=accessible_groups).distinct()
+        team_members = User.objects.filter(groups__in=accessible_groups).distinct()
     
     assignee_id = request.GET.get('assignee')
     if assignee_id: tasks = tasks.filter(ditugaskan_ke_id=assignee_id)
@@ -61,7 +83,7 @@ def dashboard(request):
         'on_hold_count': tasks.filter(status='ON_HOLD').count(), 
         'drop_count': tasks.filter(status='DROP').count(),
         'user_role': get_role(user),
-        'team_members': User.objects.filter(groups__in=user.groups.all()).distinct() if not user.is_superuser else User.objects.all()
+        'team_members': team_members
     }
     return render(request, 'core/dashboard.html', context)
 
@@ -76,13 +98,23 @@ class ProyekCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     form_class = ProyekForm
     template_name = 'core/proyek_form.html'
     success_url = reverse_lazy('proyek-list')
-    def test_func(self): return is_admin(self.request.user) or is_leader(self.request.user)
+    
+    def test_func(self): 
+        return True 
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+    
     def form_valid(self, form):
-        user_group = self.request.user.groups.first()
-        if not user_group:
-            form.add_error(None, "User tidak punya grup.")
-            return self.form_invalid(form)
-        form.instance.pemilik_grup = user_group
+        if not self.request.user.is_superuser:
+            user_group = self.request.user.groups.first()
+            if not user_group:
+                form.add_error(None, "User tidak punya grup/divisi.")
+                return self.form_invalid(form)
+            form.instance.pemilik_grup = user_group
+            
         form.instance.dibuat_oleh = self.request.user
         resp = super().form_valid(form)
         log_activity(self.request.user, 'CREATE', 'Proyek', self.object.kode_proyek, f"Created: {self.object.nama_proyek}")
@@ -93,7 +125,17 @@ class ProyekUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     form_class = ProyekForm
     template_name = 'core/proyek_form.html'
     success_url = reverse_lazy('proyek-list')
-    def test_func(self): return is_admin(self.request.user)
+    
+    def test_func(self): 
+        user = self.request.user
+        if user.is_superuser or is_admin(user) or is_leader(user): return True
+        return self.get_object().dibuat_oleh == user
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+        
     def form_valid(self, form):
         resp = super().form_valid(form)
         log_activity(self.request.user, 'UPDATE', 'Proyek', self.object.kode_proyek, "Updated details")
@@ -107,7 +149,10 @@ class ProyekDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Proyek
     template_name = 'core/confirm_delete.html'
     success_url = reverse_lazy('proyek-list')
-    def test_func(self): return is_admin(self.request.user)
+    
+    def test_func(self): 
+        return is_admin(self.request.user) or is_leader(self.request.user) or self.request.user.is_superuser
+        
     def delete(self, request, *args, **kwargs):
         obj = self.get_object()
         log_activity(request.user, 'DELETE', 'Proyek', obj.kode_proyek, f"Deleted: {obj.nama_proyek}")
@@ -119,21 +164,9 @@ def download_template_tugas(request):
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = 'attachment; filename=Template_Import_Tugas.xlsx'
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Template Tugas"
-    headers = ['Nama Tugas', 'Tipe Tugas', 'Kode Proyek', 'Pemberi Tugas', 'Username PIC', 'Start Date', 'End Date', 'Deskripsi']
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
-    
-    sample_data = [
-        ['Laporan Keuangan Q1', 'ADHOC', '', 'Pak Direktur', request.user.username, '2025-02-03', '2025-02-07', 'Contoh Adhoc'],
-        ['Integrasi API', 'PROJECT', 'P-001', '', '', '2025-02-10', '2025-02-14', 'Contoh Project'],
-    ]
-    for row in sample_data: ws.append(row)
-    for column in ws.columns:
-        ws.column_dimensions[get_column_letter(column[0].column)].width = 20
+    ws = wb.active; ws.title = "Template Tugas"
+    ws.append(['Nama Tugas', 'Tipe Tugas', 'Kode Proyek', 'Pemberi Tugas', 'Username PIC', 'Start Date', 'End Date', 'Deskripsi'])
+    for cell in ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
     wb.save(response)
     return response
 
@@ -187,7 +220,7 @@ def import_tugas(request):
     else: form = ImportTugasForm()
     return render(request, 'core/import_tugas.html', {'form': form})
 
-# --- USER IMPORT VIEWS (FIXED TRANSACTION) ---
+# --- USER IMPORT & MANAGEMENT ---
 @login_required
 def download_template_user(request):
     if not (request.user.is_superuser or is_admin(request.user)): return HttpResponseForbidden("Akses ditolak.")
@@ -195,21 +228,8 @@ def download_template_user(request):
     response['Content-Disposition'] = 'attachment; filename=Template_Import_User.xlsx'
     wb = openpyxl.Workbook()
     ws = wb.active; ws.title = "Template User"
-    
-    headers = ['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role (ADMIN/LEADER/MEMBER)', 'Nama Divisi (Group)', 'Status (ACTIVE/INACTIVE)']
-    ws.append(headers)
-    
+    ws.append(['Username', 'Email', 'Password', 'First Name', 'Last Name', 'Role (ADMIN/LEADER/MEMBER)', 'Nama Divisi (Group)', 'Status (ACTIVE/INACTIVE)'])
     for cell in ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill(start_color="198754", end_color="198754", fill_type="solid")
-    
-    sample_data = [
-        ['budi.santoso', 'budi@kantor.com', 'Rahasia123', 'Budi', 'Santoso', 'MEMBER', 'IT Development', 'ACTIVE'],
-        ['andi.resigned', 'andi@kantor.com', 'Rahasia123', 'Andi', 'Lama', 'MEMBER', 'IT Development', 'INACTIVE'],
-    ]
-    for row in sample_data: ws.append(row)
-    
-    for column in ws.columns:
-        ws.column_dimensions[get_column_letter(column[0].column)].width = 20
-
     wb.save(response)
     return response
 
@@ -224,13 +244,9 @@ def import_user(request):
                 ws = wb.active
                 success_users, errors = [], []
                 
-                # REVISI: Pindahkan transaction.atomic() KE DALAM loop.
-                # Agar jika 1 user gagal (misal duplikat), user lain tetap bisa tersimpan.
-                
                 for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                     if not row[0]: continue
                     try:
-                        # Mulai transaksi per baris user
                         with transaction.atomic():
                             uname = str(row[0]).strip().lower().replace(" ", "")
                             email, pwd = row[1], str(row[2]) if row[2] else "Default123"
@@ -240,9 +256,7 @@ def import_user(request):
                             status_staf = str(row[7]).upper().strip() if len(row) > 7 and row[7] else 'ACTIVE'
                             is_active_user = False if status_staf in ['INACTIVE', 'NONAKTIF', '0', 'FALSE'] else True
 
-                            # Validasi manual sebelum create
-                            if User.objects.filter(username=uname).exists(): 
-                                raise ValueError(f"Username {uname} sudah ada")
+                            if User.objects.filter(username=uname).exists(): raise ValueError(f"Username {uname} sudah ada")
                             
                             u = User.objects.create_user(username=uname, email=email, password=pwd)
                             u.first_name = fname; u.last_name = lname
@@ -258,75 +272,64 @@ def import_user(request):
                                 u.groups.add(g)
                             
                             success_users.append(uname)
-                            
-                    except Exception as e: 
-                        # Jika error, transaksi per baris ini akan rollback otomatis
-                        errors.append(f"Baris {idx} ({row[0]}): {str(e)}")
+                    except Exception as e: errors.append(f"Baris {idx} ({row[0]}): {str(e)}")
                 
                 if success_users: messages.success(request, f"Sukses buat user: {', '.join(success_users[:5])}...")
                 if errors: messages.warning(request, f"Gagal: {'; '.join(errors[:5])}")
-                
-                # Redirect ke halaman User List agar langsung kelihatan hasilnya
                 return redirect('user-list')
 
             except Exception as e: messages.error(request, f"File Error: {str(e)}")
     else: form = ImportUserForm()
     return render(request, 'core/import_user.html', {'form': form})
 
-# --- USER MANAGEMENT: LIST & BULK DELETE ---
-
 class UserListView(LoginRequiredMixin, UserPassesTestMixin, ListView):
     model = User
     template_name = 'core/user_list.html'
     context_object_name = 'users'
-
-    def test_func(self):
-        # Hanya Superuser yang boleh akses halaman ini
-        return self.request.user.is_superuser
-
-    def get_queryset(self):
-        # Tampilkan semua user, urutkan berdasarkan username
-        return User.objects.all().order_by('username').select_related('profile')
+    def test_func(self): return self.request.user.is_superuser
+    def get_queryset(self): return User.objects.all().order_by('username').select_related('profile')
 
 @login_required
 def bulk_delete_users(request):
-    # Security Check: Hanya Superuser
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Akses ditolak. Hanya Superuser yang boleh menghapus pengguna.")
-    
+    if not request.user.is_superuser: return HttpResponseForbidden("Akses ditolak.")
     if request.method == 'POST':
         user_ids = request.POST.getlist('selected_users')
         if user_ids:
-            # Exclude diri sendiri
             users_to_delete = User.objects.filter(id__in=user_ids).exclude(id=request.user.id)
             count = users_to_delete.count()
-            
             if count > 0:
                 users_to_delete.delete()
                 messages.success(request, f"Berhasil menghapus {count} pengguna.")
-            else:
-                messages.warning(request, "Tidak ada data yang dihapus.")
-        else:
-            messages.warning(request, "Tidak ada pengguna yang dipilih.")
-            
+            else: messages.warning(request, "Tidak ada data yang dihapus.")
+        else: messages.warning(request, "Tidak ada pengguna yang dipilih.")
     return redirect('user-list')
 
-# --- TUGAS VIEWS (Tetap Sama) ---
+# --- TUGAS VIEWS ---
 class TugasListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     model = Tugas
     template_name = 'core/tugas_list.html'
     context_object_name = 'tugas_list'
+    
     def get_queryset(self):
         qs = super().get_queryset()
         assignee_id = self.request.GET.get('assignee')
         if assignee_id: qs = qs.filter(ditugaskan_ke_id=assignee_id)
         return qs.order_by('kode_tugas')
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.request.user.is_superuser:
+            context['team_members'] = User.objects.filter(is_active=True).order_by('first_name')
+        else:
+            context['team_members'] = User.objects.filter(groups__in=get_accessible_groups(self.request.user), is_active=True).distinct()
+        return context
+
 class TugasCreateView(LoginRequiredMixin, CreateView):
     model = Tugas
     form_class = TugasForm
     template_name = 'core/tugas_form.html'
     success_url = reverse_lazy('tugas-list')
+    
     def get_initial(self):
         initial = super().get_initial()
         initial['pemberi_tugas'] = self.request.user.get_full_name() or self.request.user.username
@@ -337,32 +340,64 @@ class TugasCreateView(LoginRequiredMixin, CreateView):
                 initial['induk'], initial['proyek'], initial['tanggal_mulai'] = parent, parent.proyek, parent.tanggal_mulai
             except: pass
         return initial
-    def get_form_kwargs(self): kwargs = super().get_form_kwargs(); kwargs['user'] = self.request.user; return kwargs
+        
+    def get_form_kwargs(self): 
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+        
     def form_valid(self, form):
-        if not self.request.user.groups.first(): form.add_error(None, "User tidak punya grup."); return self.form_invalid(form)
-        form.instance.pemilik_grup = self.request.user.groups.first()
+        if not self.request.user.is_superuser:
+            user_group = self.request.user.groups.first()
+            if not user_group: 
+                form.add_error(None, "User tidak punya grup.")
+                return self.form_invalid(form)
+            form.instance.pemilik_grup = user_group
+            
         log_activity(self.request.user, 'CREATE', 'Tugas', form.instance.kode_tugas, f"Created: {form.instance.nama_tugas}")
         return super().form_valid(form)
 
 class TugasUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
-    model = Tugas; form_class = TugasForm; template_name = 'core/tugas_form.html'; success_url = reverse_lazy('tugas-list')
-    def get_form_kwargs(self): kwargs = super().get_form_kwargs(); kwargs['user'] = self.request.user; return kwargs
-    def test_func(self): return is_admin(self.request.user) or is_leader(self.request.user) or (self.get_object().ditugaskan_ke == self.request.user)
+    model = Tugas
+    form_class = TugasForm
+    template_name = 'core/tugas_form.html'
+    success_url = reverse_lazy('tugas-list')
+    
+    def get_form_kwargs(self): 
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+        
+    def test_func(self): 
+        user = self.request.user
+        if user.is_superuser or is_admin(user) or is_leader(user): return True
+        # Member boleh edit tugas sendiri ATAU tugas yang masih kosong (unassigned)
+        return self.get_object().ditugaskan_ke == user or self.get_object().ditugaskan_ke is None
+        
     def dispatch(self, request, *args, **kwargs):
-        if self.get_object().status == 'DONE' and not request.user.is_superuser: messages.warning(request, "Tugas SELESAI tidak bisa diedit."); return redirect('tugas-list')
+        if self.get_object().status == 'DONE' and not request.user.is_superuser: 
+            messages.warning(request, "Tugas SELESAI tidak bisa diedit.")
+            return redirect('tugas-list')
         return super().dispatch(request, *args, **kwargs)
+        
     def form_valid(self, form):
-        if form.has_changed(): log_activity(self.request.user, 'UPDATE', 'Tugas', self.object.kode_tugas, f"Changed: {', '.join(form.changed_data)}")
+        if form.has_changed(): 
+            log_activity(self.request.user, 'UPDATE', 'Tugas', self.object.kode_tugas, f"Changed: {', '.join(form.changed_data)}")
         return super().form_valid(form)
 
 class TugasDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
-    model = Tugas; template_name = 'core/confirm_delete.html'; success_url = reverse_lazy('tugas-list')
-    def test_func(self): return is_admin(self.request.user)
+    model = Tugas
+    template_name = 'core/confirm_delete.html'
+    success_url = reverse_lazy('tugas-list')
+    
+    def test_func(self): 
+        return is_admin(self.request.user) or self.request.user.is_superuser
+        
     def delete(self, request, *args, **kwargs):
         log_activity(request.user, 'DELETE', 'Tugas', self.get_object().kode_tugas, f"Deleted: {self.get_object().nama_tugas}")
         return super().delete(request, *args, **kwargs)
 
-# --- API HELPERS (Tetap Sama) ---
+# --- API HELPERS ---
 @login_required
 def get_entity_dates_api(request): return JsonResponse({}) 
 
@@ -391,7 +426,6 @@ def update_task_date_api(request, pk):
             e = datetime.strptime(d.get('end'), "%Y-%m-%d").date()
             if s.weekday() >= 5: return JsonResponse({'error': 'Hari Libur!'}, status=400)
             t = get_object_or_404(Tugas, pk=pk)
-            # Permission check
             if not (request.user.is_superuser or is_admin(request.user) or is_leader(request.user) or t.ditugaskan_ke == request.user):
                 return JsonResponse({'error': 'Permission denied'}, status=403)
             t.tanggal_mulai = s; t.tenggat_waktu = e; t.save()
@@ -400,10 +434,15 @@ def update_task_date_api(request, pk):
         except Exception as e: return JsonResponse({'error': str(e)}, status=400)
     return JsonResponse({'error': 'Invalid'}, status=405)
 
+# --- GANTT & CALENDAR ---
 @login_required
 def gantt_data(request):
     user = request.user
-    tasks = Tugas.objects.all() if user.is_superuser else Tugas.objects.filter(Q(pemilik_grup__in=user.groups.all()) | Q(ditugaskan_ke=user)).distinct()
+    if user.is_superuser: tasks = Tugas.objects.all()
+    else:
+        accessible_groups = get_accessible_groups(user)
+        tasks = Tugas.objects.filter(Q(pemilik_grup__in=accessible_groups) | Q(ditugaskan_ke=user)).distinct()
+        
     if request.GET.get('assignee'): tasks = tasks.filter(ditugaskan_ke_id=request.GET.get('assignee'))
     
     gantt_list = []
@@ -425,13 +464,42 @@ def gantt_data(request):
 
 @login_required
 def gantt_view(request): 
-    team = User.objects.filter(groups__in=request.user.groups.all()).distinct() if not request.user.is_superuser else User.objects.all()
+    if request.user.is_superuser: team = User.objects.all()
+    else: team = User.objects.filter(groups__in=get_accessible_groups(request.user)).distinct()
     return render(request, 'core/gantt.html', {'team_members': team})
 
 @login_required
 def export_gantt_excel(request): return HttpResponse("Export OK")
 
-# --- BAU VIEWS & Calendar ---
+@login_required
+def calendar_view(request): return render(request, 'core/calendar.html')
+
+@login_required
+def calendar_data(request):
+    user = request.user
+    if user.is_superuser: tasks = Tugas.objects.all()
+    else: tasks = Tugas.objects.filter(Q(pemilik_grup__in=get_accessible_groups(user)) | Q(ditugaskan_ke=user)).distinct()
+    
+    events = []
+    for t in tasks:
+        color = '#0d6efd' 
+        if t.status == 'DONE': color = '#198754' 
+        elif t.status == 'OVERDUE': color = '#dc3545' 
+        elif t.status == 'ON_HOLD': color = '#ffc107' 
+        elif t.status == 'IN_PROGRESS': color = '#0dcaf0' 
+        
+        end_date = t.tenggat_waktu + timedelta(days=1)
+        events.append({
+            'title': f"{t.nama_tugas} ({t.progress}%)",
+            'start': str(t.tanggal_mulai),
+            'end': str(end_date), 
+            'backgroundColor': color,
+            'borderColor': color,
+            'url': f"/tugas/{t.pk}/update/" 
+        })
+    return JsonResponse(events, safe=False)
+
+# --- BAU VIEWS ---
 class TemplateBAUListView(LoginRequiredMixin, GroupAccessMixin, ListView):
     model = TemplateBAU
     template_name = 'core/bau_list.html'
@@ -462,32 +530,3 @@ class TemplateBAUDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView)
 @login_required
 def trigger_bau_single(request, pk):
     return redirect('bau-list')
-
-@login_required
-def calendar_view(request): return render(request, 'core/calendar.html')
-
-@login_required
-def calendar_data(request):
-    user = request.user
-    if user.is_superuser: tasks = Tugas.objects.all()
-    else: tasks = Tugas.objects.filter(Q(pemilik_grup__in=user.groups.all()) | Q(ditugaskan_ke=user)).distinct()
-    
-    events = []
-    for t in tasks:
-        color = '#0d6efd' 
-        if t.status == 'DONE': color = '#198754' 
-        elif t.status == 'OVERDUE': color = '#dc3545' 
-        elif t.status == 'ON_HOLD': color = '#ffc107' 
-        elif t.status == 'IN_PROGRESS': color = '#0dcaf0' 
-        
-        end_date = t.tenggat_waktu + timedelta(days=1)
-        
-        events.append({
-            'title': f"{t.nama_tugas} ({t.progress}%)",
-            'start': str(t.tanggal_mulai),
-            'end': str(end_date), 
-            'backgroundColor': color,
-            'borderColor': color,
-            'url': f"/tugas/{t.pk}/update/" 
-        })
-    return JsonResponse(events, safe=False)
