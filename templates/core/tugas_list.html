@@ -1,35 +1,35 @@
 {% extends 'core/base.html' %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2><i class="bi bi-list-check"></i> Daftar Tugas</h2>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-list-task"></i> Daftar Tugas</h2>
     <div class="d-flex gap-2">
-        <!-- Tombol Import Baru -->
         {% if user.is_superuser or user.profile.role == 'ADMIN' or user.profile.role == 'LEADER' %}
             <a href="{% url 'tugas-import' %}" class="btn btn-success shadow-sm">
                 <i class="bi bi-file-earmark-spreadsheet"></i> Import Excel
             </a>
-            <a href="{% url 'tugas-create' %}" class="btn btn-primary shadow-sm">
-                <i class="bi bi-plus-lg"></i> Buat Tugas
-            </a>
         {% endif %}
+        <a href="{% url 'tugas-create' %}" class="btn btn-primary shadow-sm">
+            <i class="bi bi-plus-lg"></i> Buat Tugas
+        </a>
     </div>
 </div>
 
-<!-- Filter Assignee -->
-<div class="card bg-light mb-4 border-0">
+<!-- Filter Assignee (FIXED UNTUK SUPERADMIN & HIERARKI) -->
+<div class="card bg-light mb-4 border-0 shadow-sm">
     <div class="card-body py-2">
         <form method="get" class="d-flex align-items-center gap-2">
-            <span class="fw-bold text-muted small"><i class="bi bi-funnel"></i> Filter:</span>
+            <span class="fw-bold text-muted small"><i class="bi bi-funnel"></i> Filter PIC:</span>
             <select name="assignee" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
                 <option value="">-- Semua PIC --</option>
-                {% for member in user.groups.first.user_set.all %}
+                {% for member in team_members %}
                     <option value="{{ member.id }}" {% if request.GET.assignee == member.id|stringformat:"s" %}selected{% endif %}>
                         {{ member.first_name|default:member.username }}
                     </option>
                 {% endfor %}
             </select>
             {% if request.GET.assignee %}
-                <a href="{% url 'tugas-list' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x"></i></a>
+                <a href="{% url 'tugas-list' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x"></i> Hapus Filter</a>
             {% endif %}
         </form>
     </div>
@@ -37,56 +37,148 @@
 
 <div class="row">
     {% for task in tugas_list %}
-    <div class="col-md-6 mb-3">
-        <div class="card shadow-sm border-0 h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-2">
-                    <h5 class="card-title text-primary mb-0">
-                        <a href="{% url 'tugas-update' task.pk %}" class="text-decoration-none">{{ task.nama_tugas }}</a>
-                    </h5>
-                    <span class="badge {% if task.status == 'DONE' %}bg-success{% elif task.status == 'OVERDUE' %}bg-danger{% elif task.status == 'ON_HOLD' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
-                        {{ task.get_status_display }}
-                    </span>
+    <div class="col-md-6 mb-4">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-header bg-white pb-0 border-0 pt-3">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="d-flex flex-column gap-1">
+                        <div class="d-flex align-items-center gap-2">
+                            <!-- Tipe Tugas Badge -->
+                            {% if task.tipe_tugas == 'PROJECT' %}
+                                <span class="badge bg-primary rounded-pill"><i class="bi bi-folder"></i> Proyek</span>
+                            {% elif task.tipe_tugas == 'ADHOC' %}
+                                <span class="badge bg-warning text-dark rounded-pill"><i class="bi bi-lightning-charge"></i> Adhoc</span>
+                            {% elif task.tipe_tugas == 'BAU' %}
+                                <span class="badge bg-secondary rounded-pill"><i class="bi bi-arrow-repeat"></i> BAU</span>
+                            {% endif %}
+                            
+                            <span class="text-muted small fw-bold">{{ task.kode_tugas }}</span>
+                        </div>
+                        <h5 class="mb-0 fw-bold text-dark mt-1">{{ task.nama_tugas }}</h5>
+                    </div>
+                    
+                    <!-- Status Badge -->
+                    <div>
+                        {% if task.status == 'DONE' %}
+                            <span class="badge bg-success"><i class="bi bi-check-circle"></i> Selesai</span>
+                        {% elif task.status == 'OVERDUE' %}
+                            <span class="badge bg-danger"><i class="bi bi-exclamation-circle"></i> Telat</span>
+                        {% elif task.status == 'ON_HOLD' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-pause-circle"></i> Hold</span>
+                        {% elif task.status == 'IN_PROGRESS' %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-play-circle"></i> Progress</span>
+                        {% else %}
+                            <span class="badge bg-secondary"><i class="bi bi-list"></i> Todo</span>
+                        {% endif %}
+                    </div>
                 </div>
-                
-                <div class="small text-muted mb-2">
-                    <span class="me-2"><i class="bi bi-qr-code"></i> {{ task.kode_tugas }}</span>
+            </div>
+            
+            <div class="card-body">
+                <!-- Info Proyek / Pemberi Tugas -->
+                <div class="small mb-3">
                     {% if task.proyek %}
-                        <span class="me-2"><i class="bi bi-folder"></i> {{ task.proyek.nama_proyek|truncatechars:20 }}</span>
+                        <div class="text-primary"><i class="bi bi-folder2-open"></i> Proyek: <strong>{{ task.proyek.nama_proyek }}</strong></div>
+                    {% endif %}
+                    {% if task.induk %}
+                        <div class="text-muted"><i class="bi bi-arrow-return-right"></i> Sub dari: {{ task.induk.nama_tugas }}</div>
+                    {% endif %}
+                    {% if task.pemberi_tugas %}
+                        <div class="text-muted"><i class="bi bi-person-badge"></i> Pemberi Tugas: {{ task.pemberi_tugas }}</div>
                     {% endif %}
                 </div>
 
-                <div class="d-flex justify-content-between small text-muted mb-3">
-                    <div>
-                        <i class="bi bi-person-circle"></i> PIC: 
-                        <span class="fw-bold">{{ task.ditugaskan_ke.first_name|default:task.ditugaskan_ke.username|default:"-" }}</span>
+                <!-- Plan vs Actual Section -->
+                <div class="row g-0 border rounded overflow-hidden mb-3">
+                    <div class="col-6 border-end bg-light p-2">
+                        <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 0.7rem;">Rencana (Plan)</small>
+                        <div class="small">
+                            <i class="bi bi-calendar-event text-primary"></i> {{ task.tanggal_mulai|date:"d M Y" }}<br>
+                            <i class="bi bi-flag text-primary"></i> {{ task.tenggat_waktu|date:"d M Y" }}
+                        </div>
                     </div>
-                    <div>
-                        <i class="bi bi-megaphone"></i> Dari: {{ task.pemberi_tugas|default:"-" }}
+                    <div class="col-6 p-2">
+                        <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 0.7rem;">Realisasi (Actual)</small>
+                        <div class="small">
+                            {% if task.tanggal_mulai_aktual %}
+                                <i class="bi bi-calendar-check text-success"></i> {{ task.tanggal_mulai_aktual|date:"d M Y" }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                            <br>
+                            {% if task.tanggal_selesai_aktual %}
+                                <i class="bi bi-flag-fill text-success"></i> {{ task.tanggal_selesai_aktual|date:"d M Y" }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
 
-                <div class="d-flex align-items-center">
-                    <div class="progress flex-grow-1 me-2" style="height: 10px;">
-                        <div class="progress-bar {% if task.progress == 100 %}bg-success{% else %}bg-info{% endif %}" 
-                             role="progressbar" style="width: {{ task.progress }}%"></div>
+                <!-- Progress Bar -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <small class="fw-bold">Progress</small>
+                        <small class="fw-bold {% if task.progress == 100 %}text-success{% endif %}">{{ task.progress }}%</small>
                     </div>
-                    <small class="fw-bold">{{ task.progress }}%</small>
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar {% if task.progress == 100 %}bg-success{% else %}bg-primary{% endif %}" 
+                             role="progressbar" 
+                             style="width: {{ task.progress }}%;" 
+                             aria-valuenow="{{ task.progress }}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                        </div>
+                    </div>
                 </div>
-                
-                <div class="mt-2 small d-flex justify-content-between text-muted">
-                     <span><i class="bi bi-calendar"></i> {{ task.tanggal_mulai|date:"d M" }} - {{ task.tenggat_waktu|date:"d M" }}</span>
-                     {% if task.status != 'DONE' and user.is_superuser %}
-                        <a href="{% url 'tugas-delete' task.pk %}" class="text-danger text-decoration-none"><i class="bi bi-trash"></i> Hapus</a>
-                     {% endif %}
+
+                <!-- Footer Card -->
+                <div class="d-flex justify-content-between align-items-center mt-auto pt-2 border-top">
+                    <!-- PIC Info -->
+                    <div class="d-flex align-items-center">
+                        {% if task.ditugaskan_ke %}
+                            <div class="bg-primary text-white rounded-circle d-flex justify-content-center align-items-center me-2 shadow-sm" style="width: 30px; height: 30px; font-size: 12px; font-weight: bold;">
+                                {{ task.ditugaskan_ke.username|slice:":2"|upper }}
+                            </div>
+                            <div class="d-flex flex-column">
+                                <small class="fw-bold lh-1">{{ task.ditugaskan_ke.first_name|default:task.ditugaskan_ke.username }}</small>
+                                <small class="text-muted" style="font-size: 0.7rem;">PIC</small>
+                            </div>
+                        {% else %}
+                            <span class="badge bg-secondary">Unassigned</span>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Action Button -->
+                    <div class="btn-group">
+                        <!-- LOGIKA TOMBOL EDIT:
+                             Hanya muncul jika:
+                             1. Tugas BELUM DONE (Kecuali Superuser)
+                             2. DAN (User adalah Super/Admin/Leader ATAU Tugas milik user ATAU Tugas belum ada PIC)
+                        -->
+                        {% if task.status != 'DONE' or user.is_superuser %}
+                            {% if user.is_superuser or user.profile.role == 'ADMIN' or user.profile.role == 'LEADER' or task.ditugaskan_ke == user or not task.ditugaskan_ke %}
+                                <a href="{% url 'tugas-update' task.pk %}" class="btn btn-sm btn-outline-primary fw-bold">
+                                    <i class="bi bi-pencil-square"></i> Edit
+                                </a>
+                            {% endif %}
+                        {% endif %}
+
+                        {% if user.is_superuser or user.profile.role == 'ADMIN' %}
+                        <a href="{% url 'tugas-delete' task.pk %}" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i>
+                        </a>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
     </div>
     {% empty %}
     <div class="col-12 text-center py-5">
-        <img src="https://cdn-icons-png.flaticon.com/512/7486/7486744.png" alt="Empty" width="80" class="mb-3 opacity-50">
-        <p class="text-muted">Belum ada tugas. Silakan buat atau import dari Excel.</p>
+        <img src="https://cdn-icons-png.flaticon.com/512/7486/7486744.png" alt="Empty" width="100" class="mb-3 opacity-50">
+        <h5 class="text-muted">Belum ada tugas yang ditemukan.</h5>
+        <p class="text-muted">Gunakan tombol "Buat Tugas" untuk memulai.</p>
     </div>
     {% endfor %}
 </div>
