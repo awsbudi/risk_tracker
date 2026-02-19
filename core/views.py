@@ -100,6 +100,7 @@ class ProyekCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     success_url = reverse_lazy('proyek-list')
     
     def test_func(self): 
+        # UPDATE: Member sekarang BOLEH membuat proyek (Return True)
         return True 
     
     def get_form_kwargs(self):
@@ -128,6 +129,7 @@ class ProyekUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     
     def test_func(self): 
         user = self.request.user
+        # UPDATE: Admin/Leader/Superuser akses penuh. Member hanya jika dia PEMBUATNYA.
         if user.is_superuser or is_admin(user) or is_leader(user): return True
         return self.get_object().dibuat_oleh == user
     
@@ -151,6 +153,7 @@ class ProyekDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     success_url = reverse_lazy('proyek-list')
     
     def test_func(self): 
+        # UPDATE: Hanya Leader ke atas yang boleh HAPUS
         return is_admin(self.request.user) or is_leader(self.request.user) or self.request.user.is_superuser
         
     def delete(self, request, *args, **kwargs):
@@ -158,64 +161,172 @@ class ProyekDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
         log_activity(request.user, 'DELETE', 'Proyek', obj.kode_proyek, f"Deleted: {obj.nama_proyek}")
         return super().delete(request, *args, **kwargs)
 
-# --- IMPORT TUGAS VIEWS ---
+# --- IMPORT TUGAS VIEWS (UPDATED: MEMBER ACCESS & SUBTASK) ---
 @login_required
 def download_template_tugas(request):
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = 'attachment; filename=Template_Import_Tugas.xlsx'
+    response['Content-Disposition'] = 'attachment; filename=Template_Import_Tugas_Subtask.xlsx'
+    
     wb = openpyxl.Workbook()
-    ws = wb.active; ws.title = "Template Tugas"
-    ws.append(['Nama Tugas', 'Tipe Tugas', 'Kode Proyek', 'Pemberi Tugas', 'Username PIC', 'Start Date', 'End Date', 'Deskripsi'])
-    for cell in ws[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+    ws = wb.active
+    ws.title = "Template Tugas"
+    
+    # UPDATE: Tambahkan kolom Level dan Nama Induk
+    headers = [
+        'Nama Tugas', 'Tipe Tugas (PROJECT/ADHOC/BAU)', 'Kode Proyek', 
+        'Pemberi Tugas', 'Username PIC', 'Start Date', 'End Date', 'Deskripsi',
+        'Level (1=Main, 2=Sub)', 'Nama Tugas Induk (Wajib jika Level 2)'
+    ]
+    ws.append(headers)
+    
+    # Styling Header
+    for cell in ws[1]: 
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+    
+    # Sample Data
+    sample_data = [
+        ['Setup Server Utama', 'PROJECT', 'P-001', '', request.user.username, '2025-02-10', '2025-02-14', 'Ini tugas induk', 1, ''],
+        ['Install Database', 'PROJECT', 'P-001', '', request.user.username, '2025-02-11', '2025-02-12', 'Ini subtask', 2, 'Setup Server Utama'],
+        ['Laporan Mingguan', 'ADHOC', '', 'Pak Boss', '', '2025-02-10', '2025-02-10', 'Tugas biasa', 1, ''],
+    ]
+    for row in sample_data: ws.append(row)
+    
+    # Auto Width
+    for column in ws.columns:
+        ws.column_dimensions[get_column_letter(column[0].column)].width = 25
+        
     wb.save(response)
     return response
 
 @login_required
 def import_tugas(request):
-    if not (is_admin(request.user) or is_leader(request.user)): return HttpResponseForbidden("Akses ditolak.")
+    # UPDATE: Member sekarang BOLEH import tugas
+    if not (is_admin(request.user) or is_leader(request.user) or is_member(request.user) or request.user.is_superuser): 
+        return HttpResponseForbidden("Akses ditolak.")
+
     if request.method == 'POST':
         form = ImportTugasForm(request.POST, request.FILES)
         if form.is_valid():
             try:
                 wb = openpyxl.load_workbook(request.FILES['file_excel'])
                 ws = wb.active
-                success, errors = 0, []
+                
+                # UPDATE: Logika Sorting (Level 1 dulu, baru Level 2)
+                # Kita baca dulu semua baris ke dalam list of dictionary
+                raw_rows = []
                 for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                     if not row[0]: continue
-                    try:
-                        nama, tipe, kode_p = row[0], (row[1] or 'ADHOC').upper().strip(), row[2]
-                        pemberi = row[3] or request.user.get_full_name() or request.user.username
-                        pic_user = User.objects.filter(username=row[4]).first() if row[4] else None
-                        
-                        def parse_date(d):
-                            if isinstance(d, datetime): return d.date()
-                            if isinstance(d, str):
-                                for f in ('%Y-%m-%d', '%d/%m/%Y'): 
-                                    try: return datetime.strptime(d.strip(), f).date()
-                                    except: pass
-                            return d if isinstance(d, date) else None
-
-                        start, end = parse_date(row[5]), parse_date(row[6])
-                        if not start or not end: raise ValueError("Format tanggal salah (Gunakan YYYY-MM-DD)")
-                        if start.weekday() >= 5: raise ValueError("Tanggal Mulai jatuh hari libur (Sabtu/Minggu)")
-                        
-                        proyek_obj = None
-                        if tipe == 'PROJECT':
-                            if not kode_p: raise ValueError("Kode Proyek wajib diisi utk tugas PROJECT")
-                            proyek_obj = Proyek.objects.filter(kode_proyek=kode_p).first()
-                            if not proyek_obj: raise ValueError(f"Proyek {kode_p} tidak ditemukan")
-
-                        Tugas.objects.create(
-                            nama_tugas=nama, tipe_tugas=tipe, proyek=proyek_obj, pemberi_tugas=pemberi,
-                            ditugaskan_ke=pic_user, tanggal_mulai=start, tenggat_waktu=end,
-                            pemilik_grup=request.user.groups.first(), status='TODO', progress=0
-                        )
-                        success += 1
-                    except Exception as e: errors.append(f"Baris {idx}: {str(e)}")
+                    # Mapping kolom
+                    item = {
+                        'idx': idx,
+                        'nama': row[0],
+                        'tipe': (row[1] or 'ADHOC').upper().strip(),
+                        'kode_p': row[2],
+                        'pemberi': row[3],
+                        'pic_uname': row[4],
+                        'start': row[5],
+                        'end': row[6],
+                        'desc': row[7] or "",
+                        # Kolom baru (index 8 dan 9)
+                        'level': int(row[8]) if len(row) > 8 and row[8] else 1,
+                        'parent_name': str(row[9]).strip() if len(row) > 9 and row[9] else None
+                    }
+                    raw_rows.append(item)
                 
-                if success: messages.success(request, f"Sukses import {success} tugas.")
-                if errors: messages.warning(request, f"Gagal {len(errors)} data: " + "; ".join(errors[:5]))
+                # SORTING: Proses Level 1 (Main Task) duluan agar parent tersedia saat Subtask dibuat
+                raw_rows.sort(key=lambda x: x['level'])
+                
+                success_count = 0
+                errors = []
+                created_tasks_cache = {} # Cache untuk menyimpan tugas yg baru dibuat di batch ini
+                
+                user_group = request.user.groups.first()
+                if not user_group and not request.user.is_superuser:
+                    raise ValueError("User Anda tidak terdaftar dalam Divisi/Group manapun.")
+
+                with transaction.atomic():
+                    for row in raw_rows:
+                        try:
+                            # 1. Parsing Tanggal
+                            def parse_date(d):
+                                if isinstance(d, datetime): return d.date()
+                                if isinstance(d, str):
+                                    for f in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'): 
+                                        try: return datetime.strptime(d.strip(), f).date()
+                                        except: pass
+                                return d if isinstance(d, date) else None
+
+                            start = parse_date(row['start'])
+                            end = parse_date(row['end'])
+                            
+                            if not start or not end: raise ValueError("Format tanggal salah")
+                            if start.weekday() >= 5: raise ValueError("Tanggal Mulai hari libur (Sabtu/Minggu)")
+
+                            # 2. Cek Proyek
+                            proyek_obj = None
+                            if row['tipe'] == 'PROJECT':
+                                if not row['kode_p']: raise ValueError("Kode Proyek wajib diisi utk tipe PROJECT")
+                                proyek_obj = Proyek.objects.filter(kode_proyek=row['kode_p']).first()
+                                if not proyek_obj: raise ValueError(f"Proyek {row['kode_p']} tidak ditemukan")
+                            
+                            # 3. Cek PIC
+                            pic_user = None
+                            if row['pic_uname']:
+                                pic_user = User.objects.filter(username=row['pic_uname']).first()
+                                
+                            # 4. Handle Subtask (Level 2)
+                            parent_obj = None
+                            if row['level'] == 2:
+                                if not row['parent_name']:
+                                    raise ValueError("Level 2 (Subtask) wajib mengisi 'Nama Tugas Induk'")
+                                
+                                # Cari di cache batch ini dulu
+                                if row['parent_name'] in created_tasks_cache:
+                                    parent_obj = created_tasks_cache[row['parent_name']]
+                                else:
+                                    # Cari di database (di grup yg sama)
+                                    # Gunakan filter pemilik_grup agar tidak cross-division
+                                    qs = Tugas.objects.filter(nama_tugas=row['parent_name'])
+                                    if not request.user.is_superuser:
+                                        qs = qs.filter(pemilik_grup=user_group)
+                                    
+                                    parent_obj = qs.first()
+                                    
+                                if not parent_obj:
+                                    raise ValueError(f"Tugas Induk '{row['parent_name']}' tidak ditemukan.")
+
+                                # Warisi Proyek dari Induk jika tidak diisi
+                                if not proyek_obj and parent_obj.proyek:
+                                    proyek_obj = parent_obj.proyek
+
+                            # 5. Create
+                            new_task = Tugas.objects.create(
+                                nama_tugas=row['nama'],
+                                tipe_tugas=row['tipe'],
+                                proyek=proyek_obj,
+                                induk=parent_obj, # Link ke Parent
+                                pemberi_tugas=row['pemberi'] or request.user.get_full_name(),
+                                ditugaskan_ke=pic_user,
+                                tanggal_mulai=start,
+                                tenggat_waktu=end,
+                                deskripsi=row['desc'] if hasattr(Tugas, 'deskripsi') else "", # Optional check
+                                pemilik_grup=user_group if user_group else (proyek_obj.pemilik_grup if proyek_obj else None),
+                                status='TODO',
+                                progress=0
+                            )
+                            
+                            # Simpan ke cache agar bisa jadi induk bagi baris berikutnya
+                            created_tasks_cache[row['nama']] = new_task
+                            success_count += 1
+                            
+                        except Exception as e:
+                            errors.append(f"Baris {row['idx']} ({row['nama']}): {str(e)}")
+                
+                if success_count: messages.success(request, f"Sukses import {success_count} tugas.")
+                if errors: messages.warning(request, f"Gagal {len(errors)} data: " + "; ".join(errors[:3]))
                 return redirect('tugas-list')
+
             except Exception as e: messages.error(request, f"File Error: {str(e)}")
     else: form = ImportTugasForm()
     return render(request, 'core/import_tugas.html', {'form': form})
